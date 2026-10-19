@@ -34,7 +34,23 @@ sudo apt install clang llvm libbpf-dev libelf-dev zlib1g-dev \
     linux-tools-generic make gcc libtest-base-perl
 make
 make test
+sudo make install
+sudo systemctl enable --now voidgate
 ```
+
+`make install` installs into the
+[Seawall](https://github.com/seawallnetworks/seawall) stack's prefix,
+`/usr/local/seawall`: `sbin/voidgate`, `bin/voidgatectl`, the default
+config in `share/voidgate/voidgate.conf`, `libexec/voidgate-mkconf`,
+and the unit in `/etc/systemd/system`. `PREFIX`, `CONFDIR` and
+`DESTDIR` change the locations; the unit runs
+`/usr/local/seawall/sbin/voidgate` whatever `PREFIX` is.
+
+The config is `/usr/local/seawall/etc/voidgate/voidgate.conf` (`-c`
+changes it). On its first start the unit makes it from the default,
+with `interface` set to the one the default route goes out of, and
+never changes it after that: edit it there, and `make install` and
+upgrades keep it. `make uninstall` keeps it too.
 
 ## Run
 
@@ -104,7 +120,7 @@ Lua path (Kong: `lua_package_path` in `kong.conf`; APISIX:
 `apisix.extra_lua_path` in `config.yaml`):
 
 ```sh
-sudo make install-lua                     # /usr/local/openresty/site/lualib
+sudo make install-lua                     # /usr/local/seawall/openresty/site/lualib
 sudo make install-lua LUA_DIR=/opt/lualib
 ```
 

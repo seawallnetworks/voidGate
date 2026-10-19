@@ -3,16 +3,18 @@ CC      ?= gcc
 CLANG   ?= clang
 LLVM_STRIP ?= llvm-strip
 BPFTOOL ?= bpftool
-# OpenResty's site lualib; Kong / APISIX: point at their Lua path.
-LUA_DIR ?= /usr/local/openresty/site/lualib
-
-PREFIX  ?= /usr/local
+# The Seawall stack's prefix, which it shares with mini-fw, sw_authd...
+PREFIX  ?= /usr/local/seawall
+CONFDIR ?= $(PREFIX)/etc/voidgate
+# The stack's OpenResty's site lualib; another OpenResty, Kong / APISIX:
+# point at their Lua path.
+LUA_DIR ?= $(PREFIX)/openresty/site/lualib
 ARCH    := $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/')
 
 SRC     := src
 BPFDIR  := src/bpf
 CFLAGS  := -O2 -g -Wall -Wextra -Wno-unused-parameter -MMD -MP \
-	-I$(SRC) -I$(BPFDIR)
+	-I$(SRC) -I$(BPFDIR) -DVG_CONF_PATH='"$(CONFDIR)/voidgate.conf"'
 LDFLAGS := -lbpf -lelf -lz
 BPF_CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) \
 	-I$(SRC) -I$(BPFDIR) \
@@ -26,7 +28,7 @@ USER_OBJS := src/voidgate.o src/config.o src/policy.o src/maps.o src/ipaddr.o \
 	src/ctl_server.o src/http.o src/log.o
 CTL_OBJS  := src/voidgatectl.o
 
-.PHONY: all clean install install-lua test
+.PHONY: all clean install install-lua uninstall test
 
 all: voidgate voidgatectl t/unit/policy t/unit/cidr
 
@@ -75,14 +77,30 @@ clean:
 -include $(USER_OBJS:.o=.d) $(CTL_OBJS:.o=.d) t/unit/policy.d t/unit/cidr.d \
 	 $(BPFDIR)/voidgate.bpf.d
 
+# The config is made on the first start, by voidgate-mkconf from the
+# default in share/voidgate: an install never replaces the operator's,
+# and each machine gets its own interface. The unit runs
+# /usr/local/seawall/sbin/voidgate whatever PREFIX is.
 install: all
-	install -d $(DESTDIR)$(PREFIX)/sbin
-	install -m 0755 voidgate voidgatectl $(DESTDIR)$(PREFIX)/sbin/
-	install -d $(DESTDIR)/etc/voidgate
-	install -m 0644 configs/voidgate.conf $(DESTDIR)/etc/voidgate/voidgate.conf
-	install -d $(DESTDIR)/lib/systemd/system
-	install -m 0644 systemd/voidgate.service \
-		$(DESTDIR)/lib/systemd/system/voidgate.service
+	install -D -m 0755 voidgate $(DESTDIR)$(PREFIX)/sbin/voidgate
+	install -D -m 0755 voidgatectl $(DESTDIR)$(PREFIX)/bin/voidgatectl
+	install -D -m 0755 systemd/voidgate-mkconf \
+		$(DESTDIR)$(PREFIX)/libexec/voidgate-mkconf
+	install -D -m 0644 configs/voidgate.conf \
+		$(DESTDIR)$(PREFIX)/share/voidgate/voidgate.conf
+	install -d -m 0755 $(DESTDIR)$(CONFDIR)
+	install -D -m 0644 systemd/voidgate.service \
+		$(DESTDIR)/etc/systemd/system/voidgate.service
+
+# keeps $(CONFDIR): the configuration outlives the program
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/sbin/voidgate \
+		$(DESTDIR)$(PREFIX)/bin/voidgatectl \
+		$(DESTDIR)$(PREFIX)/libexec/voidgate-mkconf \
+		$(DESTDIR)$(PREFIX)/share/voidgate/voidgate.conf \
+		$(DESTDIR)/etc/systemd/system/voidgate.service \
+		$(DESTDIR)$(LUA_DIR)/resty/voidgate.lua
+	-rmdir $(DESTDIR)$(PREFIX)/share/voidgate
 
 install-lua:
 	install -d $(DESTDIR)$(LUA_DIR)/resty

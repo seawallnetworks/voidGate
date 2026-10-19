@@ -389,7 +389,8 @@ its literal (`600, -- 10m`). No test runs it: it is an example to copy and
 adapt, while `resty.sh` covers the client it calls.
 
 **Install.** `make install-lua` copies the file to
-`/usr/local/openresty/site/lualib/resty/`. For Kong or APISIX, set
+`/usr/local/seawall/openresty/site/lualib/resty/`, the Seawall stack's
+OpenResty. For another OpenResty, Kong or APISIX, set
 `LUA_DIR` to a directory on the gateway's Lua path (Kong:
 `lua_package_path`; APISIX: `apisix.extra_lua_path`).
 

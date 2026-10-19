@@ -1,0 +1,30 @@
+#!/bin/sh
+# Run as root by voidgate.service before voidgate starts. Makes the
+# config, if there is none, from the default the install put in
+# share/voidgate, with "interface" set to the one the default route
+# leaves by: ens5 on EC2, eth0 elsewhere. A config already there, the
+# operator's, is never changed.
+#
+# Usage: voidgate-mkconf [CONF [DEFAULT]]
+# (defaults: /usr/local/seawall/etc/voidgate/voidgate.conf and
+# /usr/local/seawall/share/voidgate/voidgate.conf)
+set -eu
+
+C=${1:-/usr/local/seawall/etc/voidgate/voidgate.conf}
+D=${2:-/usr/local/seawall/share/voidgate/voidgate.conf}
+
+[ ! -e "$C" ] || exit 0
+
+i=$(ip -o route show default | awk '{ print $5; exit }')
+[ -n "$i" ] || i=$(ip -o -6 route show default | awk '{ print $5; exit }')
+if [ -z "$i" ]; then
+    echo "voidgate-mkconf: no default route; set interface in $C" >&2
+    exit 1
+fi
+
+# written under a temporary name: if this is cut short, the config is
+# still missing and the next start retries
+sed "s/^interface *=.*/interface = $i/" "$D" >"$C.new"
+chmod 0644 "$C.new"
+mv -f "$C.new" "$C"
+echo "voidgate-mkconf: made $C for interface $i"

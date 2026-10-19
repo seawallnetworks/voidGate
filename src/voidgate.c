@@ -24,6 +24,12 @@
 #include <unistd.h>
 
 
+/* the Makefile's, from CONFDIR */
+#ifndef VG_CONF_PATH
+#define VG_CONF_PATH  "/usr/local/seawall/etc/voidgate/voidgate.conf"
+#endif
+
+
 static void on_signal(int sig);
 static void sock_timeout(int fd);
 static long elapsed_ms(const struct timespec *a, const struct timespec *b);
@@ -267,7 +273,7 @@ main(int argc, char **argv)
     struct vg_config cfg;
     struct vg_maps maps;
     struct vg_ctrl ctrl;
-    const char *cfg_path = "/etc/voidgate/voidgate.conf";
+    const char *cfg_path = VG_CONF_PATH;
     const char *iface_ov = NULL;
     int opt, ctl_fd = -1, http_fd = -1;
     int daemon_mode = 0, stop_mode = 0, log_fd, ready_fd = -1, result = 0;

@@ -5,7 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/sbin/voidgate -c /etc/voidgate/voidgate.conf
+# "+": as root, before the capabilities below are dropped. Makes the
+# config from the default on the first start, for this machine's
+# interface.
+ExecStartPre=+/usr/local/seawall/libexec/voidgate-mkconf
+ExecStart=/usr/local/seawall/sbin/voidgate -c /usr/local/seawall/etc/voidgate/voidgate.conf
 Restart=on-failure
 RestartSec=2
 AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_PERFMON
