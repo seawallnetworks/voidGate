@@ -388,7 +388,8 @@ on 8080, which a master started as an ordinary user can bind, sets
 its literal (`600, -- 10m`). No test runs it: it is an example to copy and
 adapt, while `resty.sh` covers the client it calls.
 
-**Install.** `make install-lua` copies the file to
+**Install.** `make install` (or `make install-lua`, the client only)
+copies the file to
 `/usr/local/seawall/openresty/site/lualib/resty/`, the Seawall stack's
 OpenResty. For another OpenResty, Kong or APISIX, set
 `LUA_DIR` to a directory on the gateway's Lua path (Kong:

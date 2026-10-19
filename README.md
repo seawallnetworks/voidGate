@@ -42,7 +42,8 @@ sudo systemctl enable --now voidgate
 [Seawall](https://github.com/seawallnetworks/seawall) stack's prefix,
 `/usr/local/seawall`: `sbin/voidgate`, `bin/voidgatectl`, the default
 config in `share/voidgate/voidgate.conf`, `libexec/voidgate-mkconf`,
-and the unit in `/etc/systemd/system`. `PREFIX`, `CONFDIR` and
+the unit in `/etc/systemd/system`, and the OpenResty client in the
+stack's OpenResty (below). `PREFIX`, `CONFDIR`, `LUA_DIR` and
 `DESTDIR` change the locations; the unit runs
 `/usr/local/seawall/sbin/voidgate` whatever `PREFIX` is.
 
@@ -115,8 +116,9 @@ a local status page.
 
 `lua/resty/voidgate.lua` is a non-blocking client. It talks to the daemon's
 Unix socket with an `ngx.socket.tcp` cosocket and needs no other library.
-Install it into OpenResty's lualib, or point `LUA_DIR` at your gateway's
-Lua path (Kong: `lua_package_path` in `kong.conf`; APISIX:
+`make install` puts it in the stack's OpenResty's lualib.
+`make install-lua` installs only the client, and `LUA_DIR` points it at
+your gateway's Lua path (Kong: `lua_package_path` in `kong.conf`; APISIX:
 `apisix.extra_lua_path` in `config.yaml`):
 
 ```sh

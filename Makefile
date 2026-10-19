@@ -81,7 +81,7 @@ clean:
 # default in share/voidgate: an install never replaces the operator's,
 # and each machine gets its own interface. The unit runs
 # /usr/local/seawall/sbin/voidgate whatever PREFIX is.
-install: all
+install: all install-lua
 	install -D -m 0755 voidgate $(DESTDIR)$(PREFIX)/sbin/voidgate
 	install -D -m 0755 voidgatectl $(DESTDIR)$(PREFIX)/bin/voidgatectl
 	install -D -m 0755 systemd/voidgate-mkconf \
