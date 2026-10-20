@@ -3,7 +3,7 @@
 Multi-layer XDP shield for a single Linux VM. Silent unless the instance
 is under attack.
 
-Website: [https://lynch1981.github.io/VoidGate/](https://lynch1981.github.io/VoidGate/).
+Website: [https://voidgate.co/](https://voidgate.co/).
 Source is [`docs/`](docs/). Enable once in the GitHub UI: Settings → Pages →
 Deploy from a branch → `main` / `/docs`.
 
