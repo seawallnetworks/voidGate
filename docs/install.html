@@ -110,7 +110,16 @@ sudo ./voidgate -s stop</code></pre>
                 </ul>
 
                 <h2>systemd</h2>
-                <p>The unit runs the daemon in the foreground, without <code>-d</code>. <code>make install</code> drops the binaries in <code>/usr/local/sbin</code>, the config in <code>/etc/voidgate/voidgate.conf</code>, and the unit in <code>/lib/systemd/system/voidgate.service</code>.</p>
+                <p><code>make install</code> installs into the <a href="https://github.com/seawallnetworks/seawall">Seawall</a> stack's prefix, <code>/usr/local/seawall</code>: <code>sbin/voidgate</code>, <code>bin/voidgatectl</code>, the default config in <code>share/voidgate/voidgate.conf</code>, <code>libexec/voidgate-mkconf</code>, the unit in <code>/etc/systemd/system</code>, and the OpenResty client in the stack's OpenResty. <code>PREFIX</code>, <code>CONFDIR</code>, <code>LUA_DIR</code> and <code>DESTDIR</code> change the locations; the unit runs <code>/usr/local/seawall/sbin/voidgate</code> whatever <code>PREFIX</code> is.</p>
+                <div class="code">
+                    <div class="code-head">
+                        <span>shell</span>
+                        <button type="button" class="copy">Copy</button>
+                    </div>
+                    <pre><code>sudo make install
+sudo systemctl enable --now voidgate</code></pre>
+                </div>
+                <p>The unit runs the daemon in the foreground, without <code>-d</code>. Its config is <code>/usr/local/seawall/etc/voidgate/voidgate.conf</code>. On the first start <code>voidgate-mkconf</code> makes it from the default, with <code>interface</code> set to the one the default route goes out of, and never changes it after that: edit it there. <code>make install</code>, upgrades and <code>make uninstall</code> keep it.</p>
                 <div class="code">
                     <div class="code-head">
                         <span>voidgate.service</span>
@@ -123,11 +132,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/sbin/voidgate -c /etc/voidgate/voidgate.conf
+# "+": as root, before the capabilities below are dropped. Makes the
+# config from the default on the first start, for this machine's
+# interface.
+ExecStartPre=+/usr/local/seawall/libexec/voidgate-mkconf
+ExecStart=/usr/local/seawall/sbin/voidgate -c /usr/local/seawall/etc/voidgate/voidgate.conf
 Restart=on-failure
 RestartSec=2
 AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_PERFMON
-CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_DAC_OVERRIDE CAP_CHOWN
 LimitMEMLOCK=infinity
 
 [Install]
@@ -145,7 +158,8 @@ lua/resty/voidgate.lua   OpenResty control client
 src/policy.c             IDLE / ACTIVE policy
 src/maps.c               libbpf attach + LPM helpers
 configs/voidgate.conf    key=value
-voidgate.service         systemd unit</code></pre>
+voidgate.service         systemd unit
+voidgate-mkconf          makes the config on the first start</code></pre>
                 </div>
                 <p>Generated, do not edit or commit: <code>src/bpf/voidgate.skel.h</code>, <code>*.o</code>, binaries.</p>
             </div>
