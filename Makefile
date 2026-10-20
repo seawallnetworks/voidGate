@@ -84,12 +84,12 @@ clean:
 install: all install-lua
 	install -D -m 0755 voidgate $(DESTDIR)$(PREFIX)/sbin/voidgate
 	install -D -m 0755 voidgatectl $(DESTDIR)$(PREFIX)/bin/voidgatectl
-	install -D -m 0755 systemd/voidgate-mkconf \
+	install -D -m 0755 voidgate-mkconf \
 		$(DESTDIR)$(PREFIX)/libexec/voidgate-mkconf
 	install -D -m 0644 configs/voidgate.conf \
 		$(DESTDIR)$(PREFIX)/share/voidgate/voidgate.conf
 	install -d -m 0755 $(DESTDIR)$(CONFDIR)
-	install -D -m 0644 systemd/voidgate.service \
+	install -D -m 0644 voidgate.service \
 		$(DESTDIR)/etc/systemd/system/voidgate.service
 
 # keeps $(CONFDIR): the configuration outlives the program

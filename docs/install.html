@@ -113,7 +113,7 @@ sudo ./voidgate -s stop</code></pre>
                 <p>The unit runs the daemon in the foreground, without <code>-d</code>. <code>make install</code> drops the binaries in <code>/usr/local/sbin</code>, the config in <code>/etc/voidgate/voidgate.conf</code>, and the unit in <code>/lib/systemd/system/voidgate.service</code>.</p>
                 <div class="code">
                     <div class="code-head">
-                        <span>systemd/voidgate.service</span>
+                        <span>voidgate.service</span>
                         <button type="button" class="copy">Copy</button>
                     </div>
                     <pre><code>[Unit]
@@ -145,7 +145,7 @@ lua/resty/voidgate.lua   OpenResty control client
 src/policy.c             IDLE / ACTIVE policy
 src/maps.c               libbpf attach + LPM helpers
 configs/voidgate.conf    key=value
-systemd/voidgate.service</code></pre>
+voidgate.service         systemd unit</code></pre>
                 </div>
                 <p>Generated, do not edit or commit: <code>src/bpf/voidgate.skel.h</code>, <code>*.o</code>, binaries.</p>
             </div>
