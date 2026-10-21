@@ -45,7 +45,10 @@ sudo ip netns exec "$NS" ping -c 1 -W 1 198.51.100.10 >/dev/null || true
 
 sudo "$BIN" -c "$CONF" -i "$VETH_A" &
 DAEMON_PID=$!
-sleep 0.5
+for _ in $(seq 50); do
+  sudo "$CTL" status >/dev/null 2>&1 && break
+  sleep 0.1
+done
 STATUS=$(sudo "$CTL" status || true)
 echo "initial: $STATUS"
 echo "$STATUS" | grep -q 'state=idle' || { echo "expected idle"; exit 1; }
