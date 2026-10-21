@@ -18,7 +18,10 @@ SRC     := src
 BPFDIR  := src/bpf
 CFLAGS  := -O2 -g -Wall -Wextra -Wno-unused-parameter -MMD -MP \
 	-I$(SRC) -I$(BPFDIR) -DVG_CONF_PATH='"$(CONFDIR)/voidgate.conf"'
-LDFLAGS := -lbpf -lelf -lz
+# libbpf linked in statically, so voidgate needs no libbpf on the machine;
+# libelf and zlib (and libzstd) it needs stay shared
+LDFLAGS := $(patsubst -lbpf,-l:libbpf.a,$(or $(shell pkg-config --static \
+	--libs libbpf 2>/dev/null),-lbpf -lelf -lz))
 BPF_CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) \
 	-I$(SRC) -I$(BPFDIR) \
 	-Wall -Wno-unused-value -Wno-pointer-sign \

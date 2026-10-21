@@ -24,7 +24,8 @@ IDLE  ── wake_pps / wake_mbps ──► ACTIVE ── quiet clear_seconds �
 ## Requirements
 
 - Linux 5.8+ with BTF (`/sys/kernel/btf/vmlinux`)
-- clang, llvm, libbpf, bpftool, libelf
+- clang, llvm, libbpf (linked in statically: voidgate needs no libbpf at
+  run time), bpftool, libelf
 - `CAP_BPF` + `CAP_NET_ADMIN` (root is fine)
 
 On Ubuntu 24.04:
@@ -42,8 +43,8 @@ On Amazon Linux 2023 (and RHEL 9), the same with dnf; the Perl tests
 also need Test::Base (`cpan Test::Base`):
 
 ```
-sudo dnf install clang llvm libbpf-devel elfutils-libelf-devel zlib-devel \
-    bpftool make gcc
+sudo dnf install clang llvm libbpf-devel libbpf-static elfutils-libelf-devel \
+    zlib-devel bpftool make gcc
 ```
 
 `make install` installs into the
