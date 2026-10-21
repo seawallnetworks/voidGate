@@ -43,16 +43,17 @@ log_config_ports(const struct vg_config *cfg)
 
 void
 vg_log_config_at(const char *file, int line,
-    const struct vg_config *cfg, uint32_t attach_flags)
+    const struct vg_config *cfg, const char *hook)
 {
     if (vg_verbose < 1) {
         return;
     }
 
-    vg_log_at(file, line, "xdp attach flags 0x%x", (unsigned) attach_flags);
+    vg_log_at(file, line, "attached at %s", hook);
     vg_log_at(file, line, "active configuration");
     fprintf(stderr, "  ├─ interface = %s\n", cfg->interface);
     fprintf(stderr, "  ├─ xdp_mode = %s\n", cfg->xdp_mode);
+    fprintf(stderr, "  ├─ hook = %s\n", cfg->hook);
     fprintf(stderr, "  ├─ wake_pps = %llu\n",
             (unsigned long long) cfg->wake_pps);
     fprintf(stderr, "  ├─ wake_mbps = %llu\n",

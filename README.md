@@ -23,15 +23,16 @@ IDLE  ── wake_pps / wake_mbps ──► ACTIVE ── quiet clear_seconds �
 
 ## Requirements
 
-- Linux 5.8+ with BTF (`/sys/kernel/btf/vmlinux`)
-- clang, llvm, libbpf (linked in statically: voidgate needs no libbpf at
-  run time), bpftool, libelf
+- Linux 5.10+ with BTF (`/sys/kernel/btf/vmlinux`), and bpffs at
+  `/sys/fs/bpf` (systemd mounts it)
+- clang, llvm, libbpf and libxdp (both linked in statically: voidgate
+  needs neither at run time), bpftool, libelf
 - `CAP_BPF` + `CAP_NET_ADMIN` (root is fine)
 
 On Ubuntu 24.04:
 
 ```
-sudo apt install clang llvm libbpf-dev libelf-dev zlib1g-dev \
+sudo apt install clang llvm libbpf-dev libxdp-dev libelf-dev zlib1g-dev \
     linux-tools-generic make gcc libtest-base-perl
 make
 make test
@@ -43,8 +44,8 @@ On Amazon Linux 2023 (and RHEL 9), the same with dnf; the Perl tests
 also need Test::Base (`cpan Test::Base`):
 
 ```
-sudo dnf install clang llvm libbpf-devel libbpf-static elfutils-libelf-devel \
-    zlib-devel bpftool make gcc
+sudo dnf install clang llvm libbpf-devel libbpf-static libxdp-devel libxdp-static \
+    elfutils-libelf-devel zlib-devel bpftool make gcc
 ```
 
 `make install` installs into the
@@ -99,7 +100,8 @@ life, and a second `voidgate` exits with `already running (pid N, <pid_file>)`
 before touching the NIC or the control socket. A second instance with a
 different `pid_file` is refused too while another daemon answers on
 `/run/voidgate.sock`. After a crash the lock is released by the kernel, so a
-restart takes over the leftover socket and XDP program. `-s stop` refuses a
+restart takes over the leftover socket, and takes the dead daemon's
+program off the NIC. `-s stop` refuses a
 pid file that no running daemon holds (`is stale: voidgate is not running`),
 removes it, and never signals the pid inside.
 
@@ -109,6 +111,24 @@ isolated mount, network and PID namespaces (requires sudo and BPF support).
 Edit `interface` in the config to the VM's public NIC. Do not point this
 at a shared management-only interface you cannot afford to XDP-attach;
 the idle path is `XDP_PASS`, but attach still requires driver/SKB XDP.
+
+## Sharing the XDP hook
+
+An interface has one XDP hook. voidgate attaches with
+[libxdp](https://github.com/xdp-project/xdp-tools), whose dispatcher runs
+several programs in turn: voidgate's at priority 10, first, then
+[mini-fw](https://github.com/seawallnetworks/mini-fw)'s and the
+operator's own libxdp programs. What voidgate drops goes no further.
+
+voidgate never replaces a program it did not attach. When one that is
+not a dispatcher holds the hook (attached with `ip link`, or a `bpf_link`
+such as Cilium's), voidgate judges at TC ingress instead: with tcx,
+first, on Linux 6.6 and later; before, with a `cls_bpf` filter on the
+`clsact` qdisc, at priority 0x100. The verdicts are the same, but a TC
+drop costs more, after the kernel has built an skb: voidgate logs it as
+degraded, and `voidgatectl status` says `degraded=1`, with `hook=tcx`
+or `hook=tc` (`xdp-native` or `xdp-skb` at XDP). `hook = xdp` in the
+config fails instead, `hook = tc` always takes TC.
 
 ## OpenResty integration
 
@@ -282,12 +302,12 @@ from the log phase. It skips when neither `openresty` nor `nginx` is in
 ## Layout
 
 ```
-src/bpf/voidgate.bpf.c   XDP program
+src/bpf/voidgate.bpf.c   data plane: XDP and TC entries
 src/bpf/voidgate.h       shared map/packet structs
 src/voidgate.c           daemon
 src/voidgatectl.c        voidgatectl
 lua/resty/voidgate.lua   OpenResty control client
 contrib/openresty/       example OpenResty config
 src/policy.c             IDLE/ACTIVE policy
-src/maps.c               libbpf attach + LPM helpers
+src/maps.c               attach (libxdp, or TC) + LPM helpers
 ```

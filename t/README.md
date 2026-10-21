@@ -34,7 +34,8 @@ namespaces). Running `prove t/` without the runner skips every file with
 t/bin/run
   └─ t/bin/create_env.sh: private net, mount (/run, /tmp) and PID namespaces,
      veth pair test0 <-> peer0
-  └─ voidgate -d -c t/conf/xdp.conf  XDP attached to test0 (skb mode)
+  └─ voidgate -d -c t/conf/xdp.conf  XDP attached to test0 (skb mode),
+                                     or TC with VG_HOOK=tc
   └─ prove -I t/lib t/
        each block:
          1. voidgatectl-style reset: disarm (flushes drops), arm, setup cmds
@@ -93,16 +94,19 @@ Everything test-related lives under `t/`. `prove -r t/` only picks up
 | `unit/cidr.c` | CIDR parser and config CIDR lists, built as `t/unit/cidr` (no root) |
 | `integration/daemon.sh` | daemon startup, detach, logging, pid file |
 | `integration/resty.sh` | OpenResty client in real nginx (`resty.lua` methods, `ban()`, `ctl_socket_group`); skips without nginx + lua module |
-| `integration/netns.sh` | veth flood: IDLE → ACTIVE wake and drop |
+| `integration/netns.sh` | veth flood: IDLE → ACTIVE wake and drop (`VG_HOOK=tc`: at TC) |
+| `integration/coexist.sh` | sharing the XDP hook: libxdp's dispatcher, TC when another program holds it, leftovers of a killed daemon; skips without clang + xdp-tools |
 | `bench/` | manual load generators (`hping3`, `pktgen`) from a netns; not tests |
 
-`make test` runs `t/unit/policy` and `t/unit/cidr`, then `sudo t/bin/run`. The integration
+`make test` runs `t/unit/policy` and `t/unit/cidr`, then `sudo t/bin/run` three times:
+at XDP, at tcx (`VG_HOOK=tc`) and at classic TC (`VG_HOOK=tc VG_NO_TCX=1`). The integration
 scripts run separately, each with sudo:
 
 ```sh
 sudo t/integration/daemon.sh
 sudo t/integration/resty.sh
 sudo t/integration/netns.sh
+sudo t/integration/coexist.sh
 ```
 
 ## Writing XDP blocks

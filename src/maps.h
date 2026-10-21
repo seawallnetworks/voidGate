@@ -12,13 +12,23 @@
 #include <stdint.h>
 
 struct voidgate_bpf;
+struct xdp_program;
+
+enum vg_hook {
+    VG_HOOK_NONE = 0,
+    VG_HOOK_XDP,            /* in libxdp's dispatcher */
+    VG_HOOK_TC              /* TC ingress */
+};
 
 struct vg_maps {
     struct voidgate_bpf  *skel;
     int                   ncpus;
     int                   ifindex;
-    uint32_t              attach_flags;
-    int                   attached;
+    enum vg_hook          hook;
+    int                   degraded;     /* TC: another program holds XDP */
+    int                   xdp_mode;     /* enum xdp_attach_mode */
+    struct xdp_program   *xdp_prog;
+    int                   tcx_fd;       /* -1: classic TC */
     void                 *sum_scratch;
     size_t                sum_scratch_size;
 };
@@ -26,8 +36,9 @@ struct vg_maps {
 
 int vg_maps_open(struct vg_maps *m, struct vg_config *cfg);
 void vg_maps_close(struct vg_maps *m);
-int vg_xdp_attach(struct vg_maps *m, const struct vg_config *cfg);
-void vg_xdp_detach(struct vg_maps *m);
+int vg_attach(struct vg_maps *m, const struct vg_config *cfg);
+void vg_detach(struct vg_maps *m);
+const char *vg_hook_name(const struct vg_maps *m);
 
 int vg_cfg_commit(struct vg_maps *m, uint32_t armed,
     const struct vg_config *cfg);

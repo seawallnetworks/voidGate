@@ -7,7 +7,10 @@ Instructions for humans and coding agents working in this repo.
 voidGate is an **inline XDP DDoS gate for one Linux VM**. It is not
 FastNetMon and must not grow FastNetMon’s capture backends.
 
-- Data plane: `src/bpf/voidgate.bpf.c` — `XDP_PASS` or `XDP_DROP` only.
+- Data plane: `src/bpf/voidgate.bpf.c` — pass or drop only. One
+  `vg_judge()`, two entries: `voidgate_xdp` in libxdp's dispatcher,
+  and `voidgate_tc` at TC ingress when another program holds the XDP
+  hook (degraded). The loader loads one.
 - Control plane: `src/voidgate.c` + `src/policy.c` — decides CIDRs,
   writes LPM maps.
 - No AF_XDP, no packet redirect to userspace, no
@@ -20,11 +23,11 @@ The gate is **silent unless the VM is under attack**. Idle path is one
 
 ```
 src/bpf/voidgate.h       shared structs (BPF + userspace). No libc.
-src/bpf/voidgate.bpf.c   XDP program (GPL-2.0-only)
+src/bpf/voidgate.bpf.c   XDP and TC entries (GPL-2.0-only)
 src/voidgate.c           daemon
 src/voidgatectl.c        voidgatectl (unix socket client)
 src/policy.c             IDLE/ACTIVE policy
-src/maps.c               libbpf load/attach, LPM helpers
+src/maps.c               libxdp / TC load and attach, LPM helpers
 src/config.c             key=value config
 src/ipaddr.c             CIDR parse / overlap
 src/list.h               intrusive list / hlist (own code: the kernel's
@@ -35,7 +38,8 @@ t/lib/VG/*.pm            suite glue: frame builder, ctl client
 t/bin/run                real daemon + prove t/ (needs root)
 t/unit/policy.c          control-plane unit test
 t/unit/cidr.c            CIDR parser + config CIDR lists unit test
-t/integration/*.sh       daemon / OpenResty / veth flood (needs root)
+t/integration/*.sh       daemon / OpenResty / veth flood / sharing the
+                         XDP hook (needs root)
 lua/resty/voidgate.lua   OpenResty client (cosocket) + ban(); the only
                          Lua client (Kong / APISIX run on OpenResty)
 contrib/openresty/       example nginx.conf (not run by the tests)
@@ -118,18 +122,24 @@ sudo t/integration/daemon.sh
 sudo t/integration/resty.sh       # needs nginx + lua module; else skips
 ```
 
-Needs clang, llvm, libbpf, bpftool, libelf, libtest-base-perl, root
-(or `CAP_BPF` + `CAP_NET_ADMIN`). Kernel 5.8+ with BTF.
+Needs clang, llvm, libbpf, libxdp, bpftool, libelf, libtest-base-perl,
+root (or `CAP_BPF` + `CAP_NET_ADMIN`). Kernel 5.10+ with BTF; bpffs.
 
-Attach: native (`XDP_FLAGS_DRV_MODE`) then SKB fallback. Tests attach in
-SKB mode to a veth pair and do not require a real NIC.
+Attach (`vg_attach()`): libxdp's dispatcher at priority 10, native or SKB
+as the kernel picks (`xdp_mode`). A program that is not a dispatcher on
+the hook is never replaced: voidgate goes to TC ingress, first (tcx
+`BPF_F_BEFORE`, or classic TC at priority 0x100), and reports degraded.
+Its own leftovers from a killed daemon go first. Tests attach in SKB mode
+to a veth pair and do not require a real NIC; `VG_HOOK=tc t/bin/run`
+runs the verdicts at TC (`make test` runs all three hooks), and
+`t/integration/coexist.sh` the hook sharing.
 
 `voidgatectl` talks to `/run/voidgate.sock`. Prometheus (if
 `metrics_port` > 0): `127.0.0.1:9105/metrics`.
 
 ## Coding rules
 
-- C, no extra libraries beyond libbpf/libelf/zlib. `-Wall -Wextra`.
+- C, no extra libraries beyond libbpf/libxdp/libelf/zlib. `-Wall -Wextra`.
 - Formatting: [`code_style.md`](code_style.md) (nginx-based).
 - `src/bpf/voidgate.h` is included by BPF and userspace: keep types
   packed/`__u*`, no `stdio`, no pointers to userspace objects.

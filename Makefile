@@ -18,10 +18,12 @@ SRC     := src
 BPFDIR  := src/bpf
 CFLAGS  := -O2 -g -Wall -Wextra -Wno-unused-parameter -MMD -MP \
 	-I$(SRC) -I$(BPFDIR) -DVG_CONF_PATH='"$(CONFDIR)/voidgate.conf"'
-# libbpf linked in statically, so voidgate needs no libbpf on the machine;
-# libelf and zlib (and libzstd) it needs stay shared
-LDFLAGS := $(patsubst -lbpf,-l:libbpf.a,$(or $(shell pkg-config --static \
-	--libs libbpf 2>/dev/null),-lbpf -lelf -lz))
+# libxdp and libbpf linked in statically, so voidgate needs neither on the
+# machine (libxdp carries its dispatcher in it); libelf and zlib (and
+# libzstd) they need stay shared
+LDFLAGS := $(patsubst -lbpf,-l:libbpf.a,$(patsubst -lxdp,-l:libxdp.a, \
+	$(or $(shell pkg-config --static --libs libxdp 2>/dev/null), \
+	-lxdp -lbpf -lelf -lz)))
 BPF_CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) \
 	-I$(SRC) -I$(BPFDIR) \
 	-Wall -Wno-unused-value -Wno-pointer-sign \
@@ -67,11 +69,14 @@ t/unit/cidr: t/unit/cidr.c src/config.o src/ipaddr.o src/log.o
 	$(CC) $(CFLAGS) -MF t/unit/cidr.d -o $@ t/unit/cidr.c src/config.o \
 		src/ipaddr.o src/log.o
 
-# Unit tests, then XDP verdicts: real daemon + t/*.t (needs root).
+# Unit tests, then verdicts: real daemon + t/*.t (needs root), once for
+# each hook, so XDP and TC judge the same frames alike.
 test: all
 	./t/unit/policy
 	./t/unit/cidr
 	sudo t/bin/run
+	sudo VG_HOOK=tc t/bin/run
+	sudo VG_HOOK=tc VG_NO_TCX=1 t/bin/run
 
 clean:
 	rm -f voidgate voidgatectl t/unit/policy t/unit/cidr t/unit/*.d \

@@ -8,19 +8,60 @@
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#include <xdp/libxdp.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <linux/if_link.h>
+#include <linux/magic.h>
 #include <net/if.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/vfs.h>
 #include <unistd.h>
 
+/* tcx is Linux 6.6's UAPI: with older headers, such as Amazon Linux
+ * 2023's 6.1, voidgate still attaches with tcx on a kernel that has it.
+ */
+#ifndef BPF_F_BEFORE
+#define BPF_F_BEFORE  (1U << 3)
+#define BPF_TCX_INGRESS  46
+#endif
+
+/* voidGate's classic TC filter, on a kernel without tcx: a priority
+ * before most others (mini-fw's is 0xc000), so it runs first, as tcx's
+ * BPF_F_BEFORE and the XDP dispatcher's order have it.
+ */
+#define VG_TC_HANDLE  0x5647  /* "VG" */
+#define VG_TC_PRIORITY  0x0100
+
+#define VG_XDP_PROG  "voidgate_xdp"
+
+/* xdp_claim(): what holds the XDP hook */
+#define VG_XDP_FREE  0
+#define VG_XDP_HELD  1      /* a program, not libxdp's dispatcher */
+#define VG_XDP_SHARED  2    /* libxdp's dispatcher */
+
+
+/* set around a call that may fail, harmlessly: libbpf keeps quiet */
+static int libbpf_quiet;
 
 static void bump_memlock(void);
 static int libbpf_print(enum libbpf_print_level level, const char *fmt,
     va_list args);
+static int libxdp_print(enum libxdp_print_level level, const char *fmt,
+    va_list args);
+static int skel_open(struct vg_maps *m, const struct vg_config *cfg);
+static int skel_fresh(struct vg_maps *m, const struct vg_config *cfg);
+static const char *bpffs_dir(void);
+static int bpffs_mounted(void);
+static int have_tcx(void);
+static int xdp_claim(int ifindex, char *holder, size_t len,
+    enum xdp_attach_mode *mode);
+static int attach_xdp(struct vg_maps *m, const struct vg_config *cfg,
+    enum xdp_attach_mode mode);
+static int attach_tc(struct vg_maps *m, const struct vg_config *cfg);
+static void tc_detach(int ifindex);
 static size_t sum_scratch_need(int ncpus);
 static int foreach_family(struct vg_maps *m, int fd, int family, size_t ksz,
     uint32_t budget, vg_remote_pt fn, void *ctx);
@@ -46,6 +87,26 @@ libbpf_print(enum libbpf_print_level level, const char *fmt,
     enum libbpf_print_level max_level =
         vg_verbose >= 2 ? LIBBPF_INFO : LIBBPF_WARN;
 
+    if (level > max_level || libbpf_quiet) {
+        return 0;
+    }
+
+    /* the sections of libxdp's objects that libxdp reads itself */
+    if (strstr(fmt, "skipping unrecognized data section") != NULL) {
+        return 0;
+    }
+
+    return vfprintf(stderr, fmt, args);
+}
+
+
+static int
+libxdp_print(enum libxdp_print_level level, const char *fmt,
+    va_list args)
+{
+    enum libxdp_print_level max_level =
+        vg_verbose >= 2 ? LIBXDP_INFO : LIBXDP_WARN;
+
     if (level > max_level) {
         return 0;
     }
@@ -64,17 +125,18 @@ sum_scratch_need(int ncpus)
 }
 
 
+/* Opens the object; vg_attach() loads the entry for the hook it takes. */
 int
 vg_maps_open(struct vg_maps *m, struct vg_config *cfg)
 {
-    int err;
-
     memset(m, 0, sizeof(*m));
 
     m->ifindex = (int) if_nametoindex(cfg->interface);
+    m->tcx_fd = -1;
 
     bump_memlock();
     libbpf_set_print(libbpf_print);
+    libxdp_set_print(libxdp_print);
 
     m->ncpus = libbpf_num_possible_cpus();
 
@@ -90,12 +152,23 @@ vg_maps_open(struct vg_maps *m, struct vg_config *cfg)
         vg_die("out of memory");
     }
 
-    m->skel = voidgate_bpf__open();
-
-    if (m->skel == NULL) {
+    if (skel_open(m, cfg) < 0) {
         free(m->sum_scratch);
         m->sum_scratch = NULL;
         vg_die("failed to open BPF object");
+    }
+
+    return 0;
+}
+
+
+static int
+skel_open(struct vg_maps *m, const struct vg_config *cfg)
+{
+    m->skel = voidgate_bpf__open();
+
+    if (m->skel == NULL) {
+        return -1;
     }
 
     if (cfg->remote_map_size) {
@@ -108,14 +181,28 @@ vg_maps_open(struct vg_maps *m, struct vg_config *cfg)
         bpf_map__set_max_entries(m->skel->maps.drop_v6, cfg->drop_map_size);
     }
 
-    err = voidgate_bpf__load(m->skel);
+    return 0;
+}
 
-    if (err) {
-        voidgate_bpf__destroy(m->skel);
+
+/* An object is loaded once: after a failed attach that loaded it, the
+ * next attempt starts from a new one.
+ */
+static int
+skel_fresh(struct vg_maps *m, const struct vg_config *cfg)
+{
+    if (bpf_program__fd(m->skel->progs.voidgate_xdp) < 0
+        && bpf_program__fd(m->skel->progs.voidgate_tc) < 0)
+    {
+        return 0;
+    }
+
+    voidgate_bpf__destroy(m->skel);
+
+    if (skel_open(m, cfg) < 0) {
         m->skel = NULL;
-        free(m->sum_scratch);
-        m->sum_scratch = NULL;
-        vg_die("failed to load BPF object: %d", err);
+        vg_warn("failed to open BPF object");
+        return -1;
     }
 
     return 0;
@@ -129,7 +216,7 @@ vg_maps_close(struct vg_maps *m)
         return;
     }
 
-    vg_xdp_detach(m);
+    vg_detach(m);
 
     if (m->skel != NULL) {
         voidgate_bpf__destroy(m->skel);
@@ -141,71 +228,416 @@ vg_maps_close(struct vg_maps *m)
 }
 
 
+/* Where voidGate runs, as Seawall's proposal 0004 has it: in
+ * libxdp's dispatcher, first of the programs there; at TC ingress, first,
+ * when a program that is not a dispatcher holds the XDP hook, which is
+ * never taken from it. hook = xdp or tc pins one of them.
+ */
 int
-vg_xdp_attach(struct vg_maps *m, const struct vg_config *cfg)
+vg_attach(struct vg_maps *m, const struct vg_config *cfg)
 {
-    int prog_fd;
-    uint32_t flags;
-    int err;
+    enum xdp_attach_mode mode, shared_mode = XDP_MODE_UNSPEC;
+    char holder[BPF_OBJ_NAME_LEN];
+    int automode, held, err;
 
     if (m->skel == NULL) {
-        vg_warn("XDP attach: BPF object not loaded");
+        vg_warn("attach: BPF object not open");
         return -1;
     }
 
-    prog_fd = bpf_program__fd(m->skel->progs.voidgate_xdp);
+    automode = 0;
 
-    if (prog_fd < 0) {
-        vg_warn("XDP attach: missing program fd");
-        return -1;
-    }
+    if (strcmp(cfg->xdp_mode, "native") == 0) {
+        mode = XDP_MODE_NATIVE;
 
-    /* Replace any leftover program from a crashed daemon. */
-
-    if (strcmp(cfg->xdp_mode, "skb") == 0) {
-        flags = XDP_FLAGS_SKB_MODE;
-        err = bpf_xdp_attach(m->ifindex, prog_fd, flags, NULL);
-
-    } else if (strcmp(cfg->xdp_mode, "native") == 0) {
-        flags = XDP_FLAGS_DRV_MODE;
-        err = bpf_xdp_attach(m->ifindex, prog_fd, flags, NULL);
+    } else if (strcmp(cfg->xdp_mode, "skb") == 0) {
+        mode = XDP_MODE_SKB;
 
     } else {
-        flags = XDP_FLAGS_DRV_MODE;
-        err = bpf_xdp_attach(m->ifindex, prog_fd, flags, NULL);
-
-        if (err) {
-            vg_warn("native XDP attach failed (%s), falling back to skb",
-                    strerror(-err));
-            flags = XDP_FLAGS_SKB_MODE;
-            err = bpf_xdp_attach(m->ifindex, prog_fd, flags, NULL);
+        if (strcmp(cfg->xdp_mode, "auto") != 0) {
+            vg_warn("xdp_mode %s: not auto, native or skb; taking auto",
+                    cfg->xdp_mode);
         }
+
+        mode = XDP_MODE_NATIVE;
+        automode = 1;
     }
 
-    if (err) {
-        vg_warn("XDP attach failed: %s", strerror(-err));
+    if (strcmp(cfg->hook, "auto") != 0 && strcmp(cfg->hook, "xdp") != 0
+        && strcmp(cfg->hook, "tc") != 0)
+    {
+        vg_warn("hook %s: not auto, xdp or tc", cfg->hook);
         return -1;
     }
 
-    m->attach_flags = flags;
-    m->attached = 1;
-    vg_log("attached XDP on ifindex %d flags 0x%x (%s)", m->ifindex, flags,
-           flags & XDP_FLAGS_DRV_MODE ? "native" : "skb");
+    /* A filter left by a daemon that died at classic TC would go on
+     * judging with its own drop list, whichever hook this one takes. A
+     * tcx link went with the daemon.
+     */
+    tc_detach(m->ifindex);
+
+    if (strcmp(cfg->hook, "tc") == 0) {
+        return attach_tc(m, cfg);
+    }
+
+    /* Without bpffs libxdp attaches the program alone, not in a
+     * dispatcher, and every program after it finds the hook held.
+     */
+    if (!bpffs_mounted()) {
+        vg_warn("XDP attach: no bpffs at %s, which libxdp needs to share "
+                "the hook", bpffs_dir());
+        return -1;
+    }
+
+    held = xdp_claim(m->ifindex, holder, sizeof(holder), &shared_mode);
+
+    if (held < 0) {
+        vg_warn("XDP attach: reading ifindex %d's XDP programs: %s",
+                m->ifindex, strerror(-held));
+        return -1;
+    }
+
+    /* a dispatcher has one mode, which joining it keeps */
+    if (held == VG_XDP_SHARED && automode) {
+        mode = shared_mode;
+        automode = 0;
+    }
+
+    if (held != VG_XDP_HELD) {
+        err = attach_xdp(m, cfg, mode);
+
+        /* A driver may have native XDP and still refuse it: ENA, say, at
+         * an MTU over 3498.
+         */
+        if (err && automode && err != -EBUSY && err != -EEXIST) {
+            vg_warn("native XDP attach failed (%s), falling back to skb",
+                    strerror(-err));
+            err = attach_xdp(m, cfg, XDP_MODE_SKB);
+        }
+
+        if (err == 0) {
+            return 0;
+        }
+
+        /* attached between xdp_claim() and here */
+        if (err != -EBUSY && err != -EEXIST) {
+            vg_warn("XDP attach failed: %s", strerror(-err));
+            return -1;
+        }
+
+        snprintf(holder, sizeof(holder), "another program");
+    }
+
+    if (strcmp(cfg->hook, "xdp") == 0) {
+        vg_warn("XDP attach: %s holds ifindex %d's XDP hook without "
+                "libxdp's dispatcher", holder, m->ifindex);
+        return -1;
+    }
+
+    vg_warn("degraded: %s holds ifindex %d's XDP hook without libxdp's "
+            "dispatcher; judging at TC ingress, which costs more per drop",
+            holder, m->ifindex);
+    m->degraded = 1;
+
+    return attach_tc(m, cfg);
+}
+
+
+void
+vg_detach(struct vg_maps *m)
+{
+    if (m->hook == VG_HOOK_XDP) {
+        xdp_program__detach(m->xdp_prog, m->ifindex, m->xdp_mode, 0);
+        xdp_program__close(m->xdp_prog);
+        m->xdp_prog = NULL;
+
+    } else if (m->hook == VG_HOOK_TC) {
+        if (m->tcx_fd >= 0) {
+            close(m->tcx_fd);
+            m->tcx_fd = -1;
+
+        } else {
+            tc_detach(m->ifindex);
+        }
+
+    } else {
+        return;
+    }
+
+    vg_log("detached %s from ifindex %d", vg_hook_name(m), m->ifindex);
+    m->hook = VG_HOOK_NONE;
+}
+
+
+const char *
+vg_hook_name(const struct vg_maps *m)
+{
+    switch (m->hook) {
+    case VG_HOOK_XDP:
+        return m->xdp_mode == XDP_MODE_NATIVE ? "xdp-native"
+               : m->xdp_mode == XDP_MODE_HW ? "xdp-hw" : "xdp-skb";
+    case VG_HOOK_TC:
+        return m->tcx_fd >= 0 ? "tcx" : "tc";
+    default:
+        return "none";
+    }
+}
+
+
+static const char *
+bpffs_dir(void)
+{
+    const char *dir = getenv("LIBXDP_BPFFS");
+
+    return dir != NULL ? dir : "/sys/fs/bpf";
+}
+
+
+static int
+bpffs_mounted(void)
+{
+    struct statfs st;
+
+    return statfs(bpffs_dir(), &st) == 0 && st.f_type == BPF_FS_MAGIC;
+}
+
+
+/* tcx (6.6+): a kernel without it refuses to query it. VG_NO_TCX=1 takes
+ * classic TC anyway, to test it on a newer kernel.
+ */
+static int
+have_tcx(void)
+{
+    LIBBPF_OPTS(bpf_prog_query_opts, q);
+
+    if (getenv("VG_NO_TCX") != NULL) {
+        return 0;
+    }
+
+    return bpf_prog_query_opts(1 /* lo */, BPF_TCX_INGRESS, &q) == 0;
+}
+
+
+/* Takes voidGate's own XDP programs off the hook, left by a daemon that
+ * died without detaching: alone (an older voidgate), or in a dispatcher.
+ * Then returns VG_XDP_FREE; VG_XDP_SHARED, with the dispatcher's mode; or
+ * VG_XDP_HELD, with the name of the program that holds the hook; or
+ * -errno.
+ */
+static int
+xdp_claim(int ifindex, char *holder, size_t len,
+    enum xdp_attach_mode *mode)
+{
+    struct xdp_multiprog *mp;
+    struct xdp_program *p;
+    long err;
+
+    for ( ;; ) {
+        mp = xdp_multiprog__get_from_ifindex(ifindex);
+        err = libxdp_get_error(mp);
+
+        if (err == -ENOENT) {
+            return VG_XDP_FREE;
+        }
+
+        if (err) {
+            return (int) err;
+        }
+
+        if (xdp_multiprog__is_legacy(mp)) {
+            p = xdp_multiprog__main_prog(mp);
+
+            if (p == NULL) {
+                /* only a hardware-offloaded program */
+                xdp_multiprog__close(mp);
+                return VG_XDP_FREE;
+            }
+
+            if (strcmp(xdp_program__name(p), VG_XDP_PROG) != 0) {
+                snprintf(holder, len, "%s", xdp_program__name(p));
+                xdp_multiprog__close(mp);
+                return VG_XDP_HELD;
+            }
+
+            vg_warn("removing a voidgate XDP program left on ifindex %d",
+                    ifindex);
+            err = xdp_multiprog__detach(mp);
+            xdp_multiprog__close(mp);
+
+            if (err) {
+                return (int) err;
+            }
+
+            continue;
+        }
+
+        for (p = xdp_multiprog__next_prog(NULL, mp); p != NULL;
+             p = xdp_multiprog__next_prog(p, mp))
+        {
+            if (strcmp(xdp_program__name(p), VG_XDP_PROG) == 0) {
+                break;
+            }
+        }
+
+        if (p == NULL) {
+            *mode = xdp_multiprog__attach_mode(mp);
+            xdp_multiprog__close(mp);
+            return VG_XDP_SHARED;
+        }
+
+        /* one at a time: a detach replaces the dispatcher */
+        vg_warn("removing a voidgate XDP program left in ifindex %d's "
+                "dispatcher", ifindex);
+        err = xdp_program__detach(p, ifindex,
+                                  xdp_multiprog__attach_mode(mp), 0);
+        xdp_multiprog__close(mp);
+
+        if (err) {
+            return (int) err;
+        }
+    }
+}
+
+
+/* libxdp loads the object: the XDP entry, as an extension of the
+ * dispatcher it makes or joins. Returns 0 or -errno.
+ */
+static int
+attach_xdp(struct vg_maps *m, const struct vg_config *cfg,
+    enum xdp_attach_mode mode)
+{
+    DECLARE_LIBXDP_OPTS(xdp_program_opts, opts,
+                        .prog_name = VG_XDP_PROG);
+    struct xdp_multiprog *mp;
+    struct xdp_program *xp;
+    long err;
+
+    if (skel_fresh(m, cfg) < 0) {
+        return -ENOMEM;
+    }
+
+    opts.obj = m->skel->obj;
+    bpf_program__set_autoload(m->skel->progs.voidgate_tc, false);
+
+    xp = xdp_program__create(&opts);
+    err = libxdp_get_error(xp);
+
+    if (err) {
+        return (int) err;
+    }
+
+    /* xdp.frags is not enough for libxdp, which then makes a dispatcher
+     * without frags: one a jumbo-MTU interface refuses.
+     */
+    xdp_program__set_xdp_frags_support(xp, true);
+
+    err = xdp_program__attach(xp, m->ifindex, mode, 0);
+
+    if (err) {
+        xdp_program__close(xp);
+        return (int) err;
+    }
+
+    m->hook = VG_HOOK_XDP;
+    m->xdp_prog = xp;
+    m->xdp_mode = mode;
+
+    mp = xdp_multiprog__get_from_ifindex(m->ifindex);
+
+    if (libxdp_get_error(mp) == 0) {
+        m->xdp_mode = xdp_multiprog__attach_mode(mp);
+
+        if (xdp_multiprog__is_legacy(mp)) {
+            vg_warn("XDP: libxdp attached voidgate without a dispatcher; "
+                    "no other program can share the hook");
+        }
+
+        xdp_multiprog__close(mp);
+    }
+
+    vg_log("attached %s on ifindex %d", vg_hook_name(m), m->ifindex);
 
     return 0;
 }
 
 
-void
-vg_xdp_detach(struct vg_maps *m)
+static int
+attach_tc(struct vg_maps *m, const struct vg_config *cfg)
 {
-    if (m->attached == 0) {
-        return;
+    LIBBPF_OPTS(bpf_link_create_opts, lopts, .flags = BPF_F_BEFORE);
+    LIBBPF_OPTS(bpf_tc_hook, hook, .ifindex = m->ifindex,
+                .attach_point = BPF_TC_INGRESS);
+    LIBBPF_OPTS(bpf_tc_opts, topts, .handle = VG_TC_HANDLE,
+                .priority = VG_TC_PRIORITY, .flags = BPF_TC_F_REPLACE);
+    int prog_fd, fd, err;
+
+    if (skel_fresh(m, cfg) < 0) {
+        return -1;
     }
 
-    bpf_xdp_detach(m->ifindex, m->attach_flags, NULL);
-    m->attached = 0;
-    vg_log("detached XDP from ifindex %d", m->ifindex);
+    bpf_program__set_autoload(m->skel->progs.voidgate_xdp, false);
+    bpf_program__set_autoload(m->skel->progs.voidgate_tc, true);
+
+    err = voidgate_bpf__load(m->skel);
+
+    if (err) {
+        vg_warn("failed to load BPF object: %d", err);
+        return -1;
+    }
+
+    prog_fd = bpf_program__fd(m->skel->progs.voidgate_tc);
+
+    if (have_tcx()) {
+        /* first: ahead of mini-fw, which appends */
+        fd = bpf_link_create(prog_fd, m->ifindex, BPF_TCX_INGRESS, &lopts);
+
+        if (fd < 0) {
+            vg_warn("tcx attach failed: %s", strerror(errno));
+            return -1;
+        }
+
+        m->tcx_fd = fd;
+
+    } else {
+        /* the clsact qdisc may be there already, mini-fw's or another's */
+        err = bpf_tc_hook_create(&hook);
+
+        if (err && err != -EEXIST) {
+            vg_warn("clsact qdisc: %s", strerror(-err));
+            return -1;
+        }
+
+        topts.prog_fd = prog_fd;
+        err = bpf_tc_attach(&hook, &topts);
+
+        if (err) {
+            vg_warn("TC attach failed: %s", strerror(-err));
+            return -1;
+        }
+    }
+
+    m->hook = VG_HOOK_TC;
+    vg_log("attached %s on ifindex %d%s", vg_hook_name(m), m->ifindex,
+           m->degraded ? " (degraded)" : "");
+
+    return 0;
+}
+
+
+/* The clsact qdisc is left: something else may use it. There may be no
+ * filter, or no qdisc, to detach from.
+ */
+static void
+tc_detach(int ifindex)
+{
+    LIBBPF_OPTS(bpf_tc_hook, hook, .ifindex = ifindex,
+                .attach_point = BPF_TC_INGRESS);
+    LIBBPF_OPTS(bpf_tc_opts, opts, .handle = VG_TC_HANDLE,
+                .priority = VG_TC_PRIORITY);
+
+    libbpf_quiet = 1;
+    bpf_tc_detach(&hook, &opts);
+    libbpf_quiet = 0;
 }
 
 

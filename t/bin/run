@@ -1,7 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: Apache-2.0
 # Run the Perl Test::Base suite (t/*.t) against a real daemon in private
-# namespaces. Extra arguments go to prove, e.g. -v t/v4.t.
+# namespaces. Extra arguments go to prove, e.g. -v t/v4.t. VG_HOOK=tc
+# judges at TC ingress instead of XDP (VG_NO_TCX=1: classic TC).
 # Usage: sudo t/bin/run [prove args]
 set -euo pipefail
 
@@ -26,12 +27,14 @@ trap cleanup EXIT
 cp "$root/t/conf/xdp.conf" "$conf"
 printf 'log_file = %s\n' "$work/daemon.log" >> "$conf"
 printf 'pid_file = %s\n' "$work/voidgate.pid" >> "$conf"
+printf 'hook = %s\n' "${VG_HOOK:-xdp}" >> "$conf"
 
 # Frames sent from peer0 are the only ingress on test0: no address, no
 # IPv6 autoconf, so the kernel adds no ARP/DAD/RS/MLD noise.
 sysctl -qw net.ipv6.conf.peer0.disable_ipv6=1
 
 timeout --kill-after=2 10 "$root/voidgate" -d -c "$conf"
+grep -o 'attached [a-z-]* on .*' "$work/daemon.log"
 
 cd "$root"
 if (( $# == 0 )); then

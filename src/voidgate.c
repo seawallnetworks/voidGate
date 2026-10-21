@@ -320,8 +320,8 @@ main(int argc, char **argv)
         return 0;
     }
 
-    /* Before anything shared is touched: attach replaces any XDP program on
-     * the NIC and listen unlinks the socket path, so a second instance
+    /* Before anything shared is touched: attach takes voidgate's programs
+     * off the NIC and listen unlinks the socket path, so a second instance
      * would silently take over (and detach on exit) the first one's.
      */
     pid_fd = pid_lock(cfg.pid_file);
@@ -366,6 +366,14 @@ main(int argc, char **argv)
         vg_die("BPF maps");
     }
 
+    /* Attach loads the object, so the maps are filled after it: until
+     * then cfg reads unarmed, and the program only counts and passes.
+     */
+    if (vg_attach(&maps, &cfg) < 0) {
+        vg_maps_close(&maps);
+        vg_die("attach failed");
+    }
+
     if (vg_populate_allow(&maps, &cfg) < 0
         || vg_populate_local(&maps, &cfg) < 0)
     {
@@ -376,11 +384,6 @@ main(int argc, char **argv)
     if (vg_cfg_commit(&maps, 0, &cfg) < 0) {
         vg_maps_close(&maps);
         vg_die("failed to commit cfg map");
-    }
-
-    if (vg_xdp_attach(&maps, &cfg) < 0) {
-        vg_maps_close(&maps);
-        vg_die("XDP attach failed");
     }
 
     if (vg_ctrl_init(&ctrl, &cfg, &maps, cfg_path, iface_ov) < 0) {
@@ -404,7 +407,7 @@ main(int argc, char **argv)
         vg_log("prometheus 127.0.0.1:%d/metrics", cfg.metrics_port);
     }
 
-    vg_log_config(&cfg, maps.attach_flags);
+    vg_log_config(&cfg, vg_hook_name(&maps));
     vg_log("idle on %s, wake_pps=%llu wake_mbps=%llu", cfg.interface,
            (unsigned long long)cfg.wake_pps,
            (unsigned long long)cfg.wake_mbps);

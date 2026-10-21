@@ -240,7 +240,7 @@ printf 'log_file = bpf-failure.log\n' >> bpf.conf
 expect_failure setpriv --bounding-set=-all "$root/voidgate" \
     -d -c bpf.conf
 grep -q 'daemon startup failed' failure.err
-grep -q 'failed to load BPF object' bpf-failure.log
+grep -q 'attach failed' bpf-failure.log
 
 # No live daemon may remain after any failure (allow exited zombies).
 for entry in /proc/[0-9]*/stat; do

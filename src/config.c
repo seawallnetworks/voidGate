@@ -45,6 +45,8 @@ static const struct cfg_scalar scalars[] = {
       sizeof(((struct vg_config *) NULL)->interface) },
     { "xdp_mode", CFG_STR, CFG_OFF(xdp_mode),
       sizeof(((struct vg_config *) NULL)->xdp_mode) },
+    { "hook", CFG_STR, CFG_OFF(hook),
+      sizeof(((struct vg_config *) NULL)->hook) },
     { "log_file", CFG_STR, CFG_OFF(log_file),
       sizeof(((struct vg_config *) NULL)->log_file) },
     { "pid_file", CFG_STR, CFG_OFF(pid_file),
@@ -71,6 +73,7 @@ vg_config_defaults(struct vg_config *c)
     memset(c, 0, sizeof(*c));
     snprintf(c->interface, sizeof(c->interface), "eth0");
     snprintf(c->xdp_mode, sizeof(c->xdp_mode), "auto");
+    snprintf(c->hook, sizeof(c->hook), "auto");
     snprintf(c->log_file, sizeof(c->log_file), "/var/log/voidgate.log");
     snprintf(c->pid_file, sizeof(c->pid_file), "/run/voidgate.pid");
     c->wake_pps = 2000;

@@ -32,12 +32,15 @@ format_prometheus(struct vg_ctrl *c, const struct vg_metrics *m, char *buf,
              "# TYPE voidgate_drop_prefixes gauge\n"
              "voidgate_drop_prefixes %d\n"
              "# TYPE voidgate_rx_pps gauge\n"
-             "voidgate_rx_pps %.0f\n",
+             "voidgate_rx_pps %.0f\n"
+             "# TYPE voidgate_degraded gauge\n"
+             "voidgate_degraded %d\n",
              c->state == VG_ACTIVE ? 1 : 0,
              (unsigned long long) m->rx_pkts,
              (unsigned long long) m->rx_bytes,
              (unsigned long long) m->dropped,
-             (unsigned long long) m->map_full, c->drop_count, c->rx_pps);
+             (unsigned long long) m->map_full, c->drop_count, c->rx_pps,
+             c->maps->degraded);
 }
 
 

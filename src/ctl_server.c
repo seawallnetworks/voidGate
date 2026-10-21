@@ -70,11 +70,12 @@ ctl_status(struct vg_ctrl *ctrl, const char *args, char *reply,
 {
     snprintf(reply, reply_size,
              "state=%s armed=%d rx_pps=%.0f rx_bps=%.0f "
-             "prefixes=%d iface=%s\n",
+             "prefixes=%d iface=%s hook=%s degraded=%d\n",
              ctrl->state == VG_ACTIVE ? "active" : "idle",
              ctrl->state == VG_ACTIVE, ctrl->rx_pps, ctrl->rx_bps,
              ctrl->drop_count,
-             ctrl->cfg->interface);
+             ctrl->cfg->interface, vg_hook_name(ctrl->maps),
+             ctrl->maps->degraded);
 }
 
 
@@ -264,6 +265,7 @@ vg_ctrl_reload(struct vg_ctrl *c)
     struct vg_config       n;
     char                   iface[VG_MAX_IFACE];
     char                   mode[16];
+    char                   hook[sizeof(c->cfg->hook)];
     char                   log_file[VG_CFG_PATH_MAX];
     char                   pid_file[VG_CFG_PATH_MAX];
     char                   group[sizeof(c->cfg->ctl_socket_group)];
@@ -274,6 +276,7 @@ vg_ctrl_reload(struct vg_ctrl *c)
 
     snprintf(iface, sizeof(iface), "%s", c->cfg->interface);
     snprintf(mode, sizeof(mode), "%s", c->cfg->xdp_mode);
+    snprintf(hook, sizeof(hook), "%s", c->cfg->hook);
     snprintf(log_file, sizeof(log_file), "%s", c->cfg->log_file);
     snprintf(pid_file, sizeof(pid_file), "%s", c->cfg->pid_file);
     snprintf(group, sizeof(group), "%s", c->cfg->ctl_socket_group);
@@ -286,6 +289,7 @@ vg_ctrl_reload(struct vg_ctrl *c)
 
     snprintf(n.interface, sizeof(n.interface), "%s", iface);
     snprintf(n.xdp_mode, sizeof(n.xdp_mode), "%s", mode);
+    snprintf(n.hook, sizeof(n.hook), "%s", hook);
     snprintf(n.log_file, sizeof(n.log_file), "%s", log_file);
     snprintf(n.pid_file, sizeof(n.pid_file), "%s", pid_file);
     snprintf(n.ctl_socket_group, sizeof(n.ctl_socket_group), "%s", group);

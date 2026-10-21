@@ -1,6 +1,6 @@
 #!/bin/bash
 # Integration: veth pair, daemon starts IDLE, flood wakes it, drop works,
-# SSH-like TCP still passes.
+# SSH-like TCP still passes. VG_HOOK=tc judges at TC ingress.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="$ROOT/voidgate"
@@ -31,6 +31,7 @@ aggregate_k = 8
 local_networks =
 allow_ports = 22
 metrics_port = 0
+hook = ${VG_HOOK:-auto}
 EOF
 
 sudo ip netns add "$NS"

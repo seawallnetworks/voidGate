@@ -1,15 +1,31 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* voidGate XDP data plane.
+/* voidGate data plane.
  *
- * IDLE  (cfg.armed == 0): bump rx counters, XDP_PASS. No parse, no LPM, no LRU.
+ * IDLE  (cfg.armed == 0): bump rx counters, PASS. No parse, no LPM, no LRU.
  * ACTIVE (cfg.armed == 1): whitelist → drop LPM → count → PASS|DROP.
  *
  * Control plane decides prefixes; this program only enforces them.
+ *
+ * Two entries share vg_judge(): voidgate_xdp, run by libxdp's dispatcher,
+ * and voidgate_tc, at TC ingress when another program holds the XDP hook.
+ * The loader loads one of them.
  */
 #include <linux/bpf.h>
+#include <linux/pkt_cls.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
+#include <xdp/xdp_helpers.h>
 #include "voidgate.h"
+
+/* vg_judge()'s verdict; each entry turns it into its hook's. */
+#define VG_PASS  0
+#define VG_DROP  1
+
+/* What vg_judge() reads, but for IPv6 with long extension headers:
+ * Ethernet, two VLAN tags, IPv6 or IPv4 with options, a few extension
+ * headers, TCP. The TC entry pulls this much into the skb's linear part.
+ */
+#define VG_HDR_MAX  256
 
 
 static __always_inline struct vg_metrics *get_metrics(void);
@@ -19,7 +35,8 @@ static __always_inline int v4_in_lpm(void *map, __be32 ip);
 static __always_inline int v6_in_lpm(void *map, const __u8 addr[16]);
 static __always_inline int v6_is_linklocal(const __u8 addr[16]);
 static __always_inline int v6_is_mcast_link(const __u8 addr[16]);
-static __always_inline void acc_in(struct host_counters *c, __u64 bytes);
+static __always_inline void acc_in(struct host_counters *c, __u64 pkts,
+    __u64 bytes);
 static __always_inline int v4_dhcp_allowed(__be32 daddr, __u16 sport,
     __u16 dport);
 static __always_inline int v6_dhcp_allowed(const __u8 daddr[16],
@@ -32,7 +49,7 @@ static __always_inline int parse_l4(void *l4, void *data_end, __u8 proto,
     __u16 *sport, __u16 *dport, __u8 *icmp6_type);
 static __always_inline int v6_walk_ext(void *data_end, void **l4p,
     __u8 *protop);
-static __always_inline int pass(struct vg_metrics *m);
+static __always_inline int pass(struct vg_metrics *m, __u64 pkts);
 static __always_inline int parse_fail(struct vg_metrics *m);
 
 /* Userspace ARRAY[1]: armed and allow_ports. XDP reads. */
@@ -53,7 +70,7 @@ struct {
 } metrics SEC(".maps");
 
 
-/* LPM of IPv4 prefixes to XDP_DROP. ACTIVE write; flushed on disarm. */
+/* LPM of IPv4 prefixes to drop. ACTIVE write; flushed on disarm. */
 struct {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
     __uint(max_entries, VG_DROP_MAP_MAX);
@@ -63,7 +80,7 @@ struct {
 } drop_v4 SEC(".maps");
 
 
-/* LPM of IPv6 prefixes to XDP_DROP. ACTIVE write; flushed on disarm. */
+/* LPM of IPv6 prefixes to drop. ACTIVE write; flushed on disarm. */
 struct {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
     __uint(max_entries, VG_DROP_MAP_MAX);
@@ -247,13 +264,13 @@ v6_is_mcast_link(const __u8 addr[16])
     })
 
 static __always_inline void
-acc_in(struct host_counters *c, __u64 bytes)
+acc_in(struct host_counters *c, __u64 pkts, __u64 bytes)
 {
     if (c == NULL) {
         return;
     }
 
-    c->in_pkts++;
+    c->in_pkts += pkts;
     c->in_bytes += bytes;
 }
 
@@ -447,13 +464,13 @@ v6_walk_ext(void *data_end, void **l4p, __u8 *protop)
 
 
 static __always_inline int
-pass(struct vg_metrics *m)
+pass(struct vg_metrics *m, __u64 pkts)
 {
     if (m != NULL) {
-        m->passed++;
+        m->passed += pkts;
     }
 
-    return XDP_PASS;
+    return VG_PASS;
 }
 
 
@@ -464,36 +481,21 @@ parse_fail(struct vg_metrics *m)
         m->parse_err++;
     }
 
-    return XDP_PASS;
+    return VG_PASS;
 }
 
 
-SEC("xdp")
-int
-voidgate_xdp(struct xdp_md *ctx)
+/* An armed gate's verdict on the frame at data: pkts packets (more than
+ * one for a GRO'd skb at TC) of pkt_len bytes in all.
+ */
+static __always_inline int
+vg_judge(void *data, void *data_end, struct vg_cfg *c, struct vg_metrics *m,
+    __u64 pkts, __u64 pkt_len)
 {
-    void *data = (void *) (long) ctx->data;
-    void *data_end = (void *) (long) ctx->data_end;
-    struct vg_metrics *m = get_metrics();
-    struct vg_cfg *c;
     struct vg_eth *eth;
     void *nh;
     __u16 eth_proto;
-    __u64 pkt_len;
     int i;
-
-    pkt_len = (__u64) ((__u8 *) data_end - (__u8 *) data);
-
-    if (m != NULL) {
-        m->rx_pkts++;
-        m->rx_bytes += pkt_len;
-    }
-
-    c = get_cfg();
-
-    if (c == NULL || c->armed == 0) {
-        return pass(m);
-    }
 
     if ((void *) data + sizeof(*eth) > data_end) {
         return parse_fail(m);
@@ -577,21 +579,21 @@ voidgate_xdp(struct xdp_md *ctx)
 
         if (v4_in_lpm(&drop_v4, saddr) || v4_in_lpm(&drop_v4, daddr)) {
             if (m != NULL) {
-                m->dropped++;
+                m->dropped += pkts;
             }
 
-            return XDP_DROP;
+            return VG_DROP;
         }
 
 
         v4_count:
 
         if (v4_in_lpm(&local_v4, daddr)) {
-            acc_in(VG_HASH_GET(host_v4, &daddr, m), pkt_len);
-            acc_in(VG_HASH_GET(remote_v4, &saddr, m), pkt_len);
+            acc_in(VG_HASH_GET(host_v4, &daddr, m), pkts, pkt_len);
+            acc_in(VG_HASH_GET(remote_v4, &saddr, m), pkts, pkt_len);
         }
 
-        return pass(m);
+        return pass(m, pkts);
     }
 
     if (eth_proto == VG_ETH_P_IPV6) {
@@ -666,28 +668,120 @@ voidgate_xdp(struct xdp_md *ctx)
             || v6_in_lpm(&drop_v6, daddr.addr))
         {
             if (m != NULL) {
-                m->dropped++;
+                m->dropped += pkts;
             }
 
-            return XDP_DROP;
+            return VG_DROP;
         }
 
 
         v6_count:
 
         if (v6_in_lpm(&local_v6, daddr.addr)) {
-            acc_in(VG_HASH_GET(host_v6, &daddr, m), pkt_len);
-            acc_in(VG_HASH_GET(remote_v6, &saddr, m), pkt_len);
+            acc_in(VG_HASH_GET(host_v6, &daddr, m), pkts, pkt_len);
+            acc_in(VG_HASH_GET(remote_v6, &saddr, m), pkts, pkt_len);
         }
 
-        return pass(m);
+        return pass(m, pkts);
     }
 
     if (m != NULL) {
         m->non_ip++;
     }
 
-    return pass(m);
+    return pass(m, pkts);
+}
+
+
+static __always_inline void
+rx_count(struct vg_metrics *m, __u64 pkts, __u64 bytes)
+{
+    if (m != NULL) {
+        m->rx_pkts += pkts;
+        m->rx_bytes += bytes;
+    }
+}
+
+
+/* libxdp's dispatcher runs voidGate ahead of mini-fw (priority 20), and
+ * only a pass goes on to the next program. Frags: the headers are in the
+ * first buffer, so a jumbo-MTU interface keeps the dispatcher.
+ */
+struct {
+    __uint(priority, 10);
+    __uint(XDP_PASS, 1);
+} XDP_RUN_CONFIG(voidgate_xdp);
+
+SEC("xdp.frags")
+int
+voidgate_xdp(struct xdp_md *ctx)
+{
+    void *data = (void *) (long) ctx->data;
+    void *data_end = (void *) (long) ctx->data_end;
+    struct vg_metrics *m = get_metrics();
+    struct vg_cfg *c;
+    __u64 pkt_len = bpf_xdp_get_buff_len(ctx);
+
+    rx_count(m, 1, pkt_len);
+
+    c = get_cfg();
+
+    if (c == NULL || c->armed == 0) {
+        pass(m, 1);
+        return XDP_PASS;
+    }
+
+    if (vg_judge(data, data_end, c, m, 1, pkt_len) == VG_DROP) {
+        return XDP_DROP;
+    }
+
+    return XDP_PASS;
+}
+
+
+/* Pass is TC_ACT_UNSPEC, which is tcx's TCX_NEXT: classic TC and tcx both
+ * go on to the next program, mini-fw's. A GRO'd skb counts as its
+ * segments, as XDP saw them.
+ */
+SEC("tc")
+int
+voidgate_tc(struct __sk_buff *ctx)
+{
+    struct vg_metrics *m = get_metrics();
+    struct vg_cfg *c;
+    void *data, *data_end;
+    __u64 pkts = ctx->gso_segs ? ctx->gso_segs : 1;
+    __u32 want;
+
+    rx_count(m, pkts, ctx->len);
+
+    c = get_cfg();
+
+    if (c == NULL || c->armed == 0) {
+        pass(m, pkts);
+        return TC_ACT_UNSPEC;
+    }
+
+    /* A TC program reads only the skb's linear part, which may hold just
+     * the Ethernet header. Pull only when it is short: a pull makes the
+     * skb writable, copying a cloned skb's head. One that fails leaves
+     * the short view, judged without ports, like a truncated header.
+     */
+    data = (void *) (long) ctx->data;
+    data_end = (void *) (long) ctx->data_end;
+    want = ctx->len < VG_HDR_MAX ? ctx->len : VG_HDR_MAX;
+
+    if (data + want > data_end) {
+        bpf_skb_pull_data(ctx, want);
+        data = (void *) (long) ctx->data;
+        data_end = (void *) (long) ctx->data_end;
+    }
+
+    if (vg_judge(data, data_end, c, m, pkts, ctx->len) == VG_DROP) {
+        return TC_ACT_SHOT;
+    }
+
+    return TC_ACT_UNSPEC;
 }
 
 

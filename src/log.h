@@ -17,7 +17,7 @@ struct vg_config;
 
 
 void vg_log_config_at(const char *file, int line,
-    const struct vg_config *cfg, uint32_t attach_flags);
+    const struct vg_config *cfg, const char *hook);
 
 #define VG_SGR_DIM     "\033[2m"
 #define VG_SGR_CYAN    "\033[36m"
@@ -118,8 +118,8 @@ vg_die_at(const char *file, int line, const char *fmt, ...)
 #define vg_log(...)  vg_log_at(__FILE__, __LINE__, __VA_ARGS__)
 #define vg_warn(...) vg_warn_at(__FILE__, __LINE__, __VA_ARGS__)
 #define vg_die(...)  vg_die_at(__FILE__, __LINE__, __VA_ARGS__)
-#define vg_log_config(cfg, flags) \
-    vg_log_config_at(__FILE__, __LINE__, (cfg), (flags))
+#define vg_log_config(cfg, hook) \
+    vg_log_config_at(__FILE__, __LINE__, (cfg), (hook))
 
 #define vg_vlog(...) \
     do { \
