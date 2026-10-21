@@ -38,6 +38,14 @@ sudo make install
 sudo systemctl enable --now voidgate
 ```
 
+On Amazon Linux 2023 (and RHEL 9), the same with dnf; the Perl tests
+also need Test::Base (`cpan Test::Base`):
+
+```
+sudo dnf install clang llvm libbpf-devel elfutils-libelf-devel zlib-devel \
+    bpftool make gcc
+```
+
 `make install` installs into the
 [Seawall](https://github.com/seawallnetworks/seawall) stack's prefix,
 `/usr/local/seawall`: `sbin/voidgate`, `bin/voidgatectl`, the default

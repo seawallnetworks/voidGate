@@ -10,6 +10,9 @@ CONFDIR ?= $(PREFIX)/etc/voidgate
 # point at their Lua path.
 LUA_DIR ?= $(PREFIX)/openresty/site/lualib
 ARCH    := $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/')
+# Debian and Ubuntu keep asm/ under /usr/include/<multiarch>; Amazon
+# Linux and RHEL have none, and keep it in /usr/include
+MULTIARCH ?= $(shell $(CC) -print-multiarch 2>/dev/null)
 
 SRC     := src
 BPFDIR  := src/bpf
@@ -21,8 +24,7 @@ BPF_CFLAGS := -O2 -g -target bpf -D__TARGET_ARCH_$(ARCH) \
 	-Wall -Wno-unused-value -Wno-pointer-sign \
 	-Wno-compare-distinct-pointer-types \
 	-MMD -MP \
-	-isystem /usr/include/$(shell dpkg-architecture \
-		-qDEB_HOST_MULTIARCH 2>/dev/null || echo x86_64-linux-gnu)
+	$(if $(MULTIARCH),-isystem /usr/include/$(MULTIARCH))
 
 USER_OBJS := src/voidgate.o src/config.o src/policy.o src/maps.o src/ipaddr.o \
 	src/ctl_server.o src/http.o src/log.o
