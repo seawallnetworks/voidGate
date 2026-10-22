@@ -397,25 +397,28 @@ OpenResty. For another OpenResty, Kong or APISIX, set
 
 ## 10. Socket access
 
-The socket is created `0660 root:root`. The `ctl_socket_group` config key
-`chown`s it to a named group after `bind`, so gateway workers can connect.
+The socket is created `0660 root:root`. voidgate's `-g group` `chown`s it
+to that group after `bind`, so gateway workers can connect. The shipped
+unit passes `-g voidgate`, a group `make install` declares
+(`sysusers.d/voidgate.conf`): the workers' user joins it
+(`usermod -aG voidgate kong`), or `-g` names the workers' own group.
 
-| Gateway | Common worker group | Set by |
+| Gateway | Common worker user, group | Set by |
 |---|---|---|
-| OpenResty | `nogroup` (Debian/Ubuntu), `nobody` (RHEL) | `user` in `nginx.conf` |
-| Kong | `kong` | `nginx_user` in `kong.conf` |
-| APISIX | `nogroup` or `nobody`; `apisix` in its Docker image | `nginx_config.user` in `config.yaml` |
+| OpenResty | `nobody`, `nogroup` (Debian/Ubuntu) or `nobody` (RHEL) | `user` in `nginx.conf` |
+| Kong | `kong`, `kong` | `nginx_user` in `kong.conf` |
+| APISIX | `nobody`; `apisix` in its Docker image | `nginx_config.user` in `config.yaml` |
 
 The table assumes a master started as root, which drops its workers to the
 `user` directive. A master started as an ordinary user ignores `user` and
-runs its workers as itself, so `ctl_socket_group` is that user's group.
-Check the real group with `ps -eo user,group,args | grep 'worker process'`.
+runs its workers as itself, so that user joins the group.
+Check the real user and group with `ps -eo user,group,args | grep 'worker process'`.
 In a container with the socket bind-mounted, the worker's numeric gid must
 match the host group's.
 
 - An unknown group, or a failed chown, logs a warning and leaves the
   socket root-only. It never stops the gate from starting.
-- Applied at startup only; `reload` keeps the old value.
+- Applied at startup; `reload` leaves the socket as it is.
 - The systemd unit's capability bounding set gains `CAP_CHOWN`.
 
 ## 11. Security
@@ -522,7 +525,7 @@ For anyone upgrading:
 | `t/unit/cidr.c` | `vg_parse_cidr_len`: a word of a longer line, NUL inside the length, over-long input |
 | `t/drop-ttl.t` | protocol parsing: v4 and v6, refusal, ttl bounds and digits-only, CIDR-first errors |
 | `t/drop-ttl-xdp.t` | a timed drop really drops at XDP; SSH still passes |
-| `t/integration/daemon.sh` | `ctl_socket_group` chown, kept on reload, unknown group only warns; `voidgatectl` exits 1 on error |
+| `t/integration/daemon.sh` | `-g` chown, kept on reload, unknown group only warns; `voidgatectl` exits 1 on error |
 | `t/integration/resty.sh` + `resty.lua` | real nginx with workers as `nobody:nogroup`: every method against a real daemon, ttl required and validated, reload; `ban_now()` answers and local rejects; `ban()` from the log phase, 50 requests send exactly one ban; `ban_now()` from the log phase returns an error instead of aborting the handler |
 
 Negative checks in the shell tests use a `refute` helper: under `set -e`,

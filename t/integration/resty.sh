@@ -4,7 +4,7 @@
 # namespaces: the client methods (resty.lua) and ban(). Needs OpenResty, or
 # nginx with lua-nginx-module (Ubuntu: libnginx-mod-http-lua); set NGINX
 # to pick the binary. Workers run as nobody:nogroup, so this also covers
-# ctl_socket_group.
+# -g.
 set -euo pipefail
 
 . "$(dirname "$0")/../bin/create_env.sh"
@@ -46,9 +46,8 @@ trap cleanup EXIT
 cp "$root/t/conf/idle.conf" "$conf"
 printf 'log_file = %s\n' "$work/daemon.log" >> "$conf"
 printf 'pid_file = %s\n' "$work/voidgate.pid" >> "$conf"
-printf 'ctl_socket_group = nogroup\n' >> "$conf"
 # -v: one log line per drop, so the dedup check below can count them.
-timeout --kill-after=2 10 "$root/voidgate" -d -v -c "$conf"
+timeout --kill-after=2 10 "$root/voidgate" -d -v -g nogroup -c "$conf"
 
 modules=
 for m in ndk_http_module ngx_http_lua_module; do

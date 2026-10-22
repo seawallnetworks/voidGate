@@ -19,7 +19,6 @@ struct vg_config {
     char              hook[8];      /* auto, xdp, tc */
     char              log_file[VG_CFG_PATH_MAX];
     char              pid_file[VG_CFG_PATH_MAX];
-    char              ctl_socket_group[64];   /* "": leave root */
     uint64_t          wake_pps;
     uint64_t          wake_mbps;
     int               idle_poll_ms;

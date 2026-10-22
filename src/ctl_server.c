@@ -268,7 +268,6 @@ vg_ctrl_reload(struct vg_ctrl *c)
     char                   hook[sizeof(c->cfg->hook)];
     char                   log_file[VG_CFG_PATH_MAX];
     char                   pid_file[VG_CFG_PATH_MAX];
-    char                   group[sizeof(c->cfg->ctl_socket_group)];
 
     if (c->cfg_path[0] == '\0') {
         return -1;
@@ -279,7 +278,6 @@ vg_ctrl_reload(struct vg_ctrl *c)
     snprintf(hook, sizeof(hook), "%s", c->cfg->hook);
     snprintf(log_file, sizeof(log_file), "%s", c->cfg->log_file);
     snprintf(pid_file, sizeof(pid_file), "%s", c->cfg->pid_file);
-    snprintf(group, sizeof(group), "%s", c->cfg->ctl_socket_group);
     rsz = c->cfg->remote_map_size;
     dsz = c->cfg->drop_map_size;
 
@@ -292,7 +290,6 @@ vg_ctrl_reload(struct vg_ctrl *c)
     snprintf(n.hook, sizeof(n.hook), "%s", hook);
     snprintf(n.log_file, sizeof(n.log_file), "%s", log_file);
     snprintf(n.pid_file, sizeof(n.pid_file), "%s", pid_file);
-    snprintf(n.ctl_socket_group, sizeof(n.ctl_socket_group), "%s", group);
     n.remote_map_size = rsz;
     n.drop_map_size = dsz;
 
@@ -364,8 +361,9 @@ vg_ctl_server_alive(const char *path)
 }
 
 
-/* group: "" leaves the socket root-only; otherwise members of that group
- * (an nginx/OpenResty worker user) get the full control protocol.
+/* group (-g): "" leaves the socket root-only; otherwise members of that
+ * group (sw_configd, an nginx/OpenResty worker user) get the full control
+ * protocol.
  */
 int
 vg_ctl_server_listen(const char *path, const char *group)
@@ -396,10 +394,10 @@ vg_ctl_server_listen(const char *path, const char *group)
         gr = getgrnam(group);
 
         if (gr == NULL) {
-            vg_warn("ctl_socket_group %s: no such group", group);
+            vg_warn("-g %s: no such group", group);
 
         } else if (chown(path, (uid_t) -1, gr->gr_gid) < 0) {
-            vg_warn("ctl_socket_group %s: chown %s: %s", group, path,
+            vg_warn("-g %s: chown %s: %s", group, path,
                     strerror(errno));
         }
     }

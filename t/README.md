@@ -93,7 +93,7 @@ Everything test-related lives under `t/`. `prove -r t/` only picks up
 | `unit/policy.c` | control-plane unit test, built as `t/unit/policy` by `make` (no root) |
 | `unit/cidr.c` | CIDR parser and config CIDR lists, built as `t/unit/cidr` (no root) |
 | `integration/daemon.sh` | daemon startup, detach, logging, pid file |
-| `integration/resty.sh` | OpenResty client in real nginx (`resty.lua` methods, `ban()`, `ctl_socket_group`); skips without nginx + lua module |
+| `integration/resty.sh` | OpenResty client in real nginx (`resty.lua` methods, `ban()`, `-g`); skips without nginx + lua module |
 | `integration/netns.sh` | veth flood: IDLE → ACTIVE wake and drop (`VG_HOOK=tc`: at TC) |
 | `integration/coexist.sh` | sharing the XDP hook: libxdp's dispatcher, TC when another program holds it, leftovers of a killed daemon; skips without clang + xdp-tools |
 | `bench/` | manual load generators (`hping3`, `pktgen`) from a netns; not tests |

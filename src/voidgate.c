@@ -72,7 +72,8 @@ static void
 usage(const char *argv0)
 {
     fprintf(stderr,
-            "usage: %s [-d] [-s stop] [-c config] [-i iface] [-v|-vv]\n",
+            "usage: %s [-d] [-s stop] [-c config] [-i iface] [-g group]"
+            " [-v|-vv]\n",
             argv0);
 }
 
@@ -275,19 +276,23 @@ main(int argc, char **argv)
     struct vg_ctrl ctrl;
     const char *cfg_path = VG_CONF_PATH;
     const char *iface_ov = NULL;
+    const char *ctl_group = "";
     int opt, ctl_fd = -1, http_fd = -1;
     int daemon_mode = 0, stop_mode = 0, log_fd, ready_fd = -1, result = 0;
     int pid_fd;
     struct sigaction sa;
     struct timespec last_tick;
 
-    while ((opt = getopt(argc, argv, "c:i:ds:hv")) != -1) {
+    while ((opt = getopt(argc, argv, "c:i:g:ds:hv")) != -1) {
         switch (opt) {
         case 'c':
             cfg_path = optarg;
             break;
         case 'i':
             iface_ov = optarg;
+            break;
+        case 'g':
+            ctl_group = optarg;
             break;
         case 'v':
             if (vg_verbose < 2) {
@@ -391,7 +396,7 @@ main(int argc, char **argv)
         vg_die("control plane init failed");
     }
 
-    ctl_fd = vg_ctl_server_listen(VG_SOCK_PATH, cfg.ctl_socket_group);
+    ctl_fd = vg_ctl_server_listen(VG_SOCK_PATH, ctl_group);
 
     if (ctl_fd < 0) {
         vg_warn("ctl socket %s failed: %s (voidgatectl disabled)",

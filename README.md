@@ -156,24 +156,29 @@ sudo make install-lua                     # /usr/local/seawall/openresty/site/lu
 sudo make install-lua LUA_DIR=/opt/lualib
 ```
 
-nginx workers do not run as root. Set `ctl_socket_group` in the daemon
-config to the workers' group and restart voidgate. The daemon then creates
-`/run/voidgate.sock` as `0660 root:<group>`.
+nginx workers do not run as root. The shipped unit runs `voidgate -g
+voidgate`, so `/run/voidgate.sock` is `0660 root:voidgate`; `make install`
+declares the group (`sysusers.d/voidgate.conf`). Add the workers' user to
+it and restart the gateway:
 
-| Gateway | Common worker group | Set by |
+```sh
+sudo usermod -aG voidgate kong
+```
+
+| Gateway | Common worker user, group | Set by |
 | --- | --- | --- |
-| OpenResty | `nogroup` (Debian/Ubuntu), `nobody` (RHEL) | `user` in `nginx.conf` |
-| Kong | `kong` | `nginx_user` in `kong.conf` |
-| APISIX | `nogroup` or `nobody`; `apisix` in the official Docker image | `nginx_config.user` in `config.yaml` |
-
-```
-ctl_socket_group = kong
-```
+| OpenResty | `nobody`, `nogroup` (Debian/Ubuntu) or `nobody` (RHEL) | `user` in `nginx.conf` |
+| Kong | `kong`, `kong` | `nginx_user` in `kong.conf` |
+| APISIX | `nobody`; `apisix` in the official Docker image | `nginx_config.user` in `config.yaml` |
 
 That table is for a master started as root, which drops the workers to the
 `user` directive. A master started as an ordinary user (for example
 `openresty -p ~/work` as `ubuntu`) ignores `user` and runs its workers as
-itself: set `ctl_socket_group` to that user's group (`ubuntu`).
+itself: add that user. Members get the whole protocol, disarm and reload
+included. A worker user many services share, such as `nobody`, would
+bring them all in: give the gateway a user of its own, or pass the
+workers' group to `-g` instead (`systemctl edit voidgate`). `-g` takes
+effect at start; reload keeps the socket's group.
 
 Check the real group with `ps -eo user,group,args | grep 'worker process'`.
 If the gateway runs in a container with the socket bind-mounted, the

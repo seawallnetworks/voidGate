@@ -10,3 +10,5 @@ t/unit/cidr
 src/bpf/voidgate.bpf.o
 src/bpf/voidgate.skel.h
 src/bpf/vmlinux.h
+# but not the directory of the group declaration
+!/sysusers.d/

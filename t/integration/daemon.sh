@@ -114,11 +114,9 @@ grep -q 'reload: undrop 203.0.113.0/24' "$work/log/voidgate.log"
 grep -q 'reload: undrop 192.0.2.0/24' "$work/log/voidgate.log"
 stop_daemon
 
-# ctl_socket_group hands the control socket to that group; reload keeps it.
+# -g hands the control socket to that group; reload keeps it.
 # An unknown group leaves it root-only and only warns.
-cp base.conf group.conf
-printf 'ctl_socket_group = nogroup\n' >> group.conf
-start_daemon -c group.conf
+start_daemon -c base.conf -g nogroup
 [[ $(stat -c '%a %G' /run/voidgate.sock) == '660 nogroup' ]]
 [[ $("$root/voidgatectl" drop 198.18.0.1/32 ttl=60) == ok ]]
 [[ $("$root/voidgatectl" drops) =~ ^198\.18\.0\.1/32\ reason=4\ age=[0-9]+$ ]]
@@ -130,11 +128,9 @@ result=0
 [[ $result == 1 && $(< refused.out) == 'error: refused or map update failed' ]]
 "$root/voidgatectl" undrop 198.18.0.1/32 > /dev/null
 stop_daemon
-cp base.conf nogroup.conf
-printf 'ctl_socket_group = no-such-voidgate-group\n' >> nogroup.conf
-start_daemon -c nogroup.conf
+start_daemon -c base.conf -g no-such-voidgate-group
 [[ $(stat -c '%a %G' /run/voidgate.sock) == '660 root' ]]
-grep -q 'ctl_socket_group no-such-voidgate-group: no such group' \
+grep -q -- '-g no-such-voidgate-group: no such group' \
     "$work/log/voidgate.log"
 stop_daemon
 

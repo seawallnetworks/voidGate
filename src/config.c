@@ -51,8 +51,6 @@ static const struct cfg_scalar scalars[] = {
       sizeof(((struct vg_config *) NULL)->log_file) },
     { "pid_file", CFG_STR, CFG_OFF(pid_file),
       sizeof(((struct vg_config *) NULL)->pid_file) },
-    { "ctl_socket_group", CFG_STR, CFG_OFF(ctl_socket_group),
-      sizeof(((struct vg_config *) NULL)->ctl_socket_group) },
     { "wake_pps", CFG_U64, CFG_OFF(wake_pps), 0 },
     { "wake_mbps", CFG_U64, CFG_OFF(wake_mbps), 0 },
     { "idle_poll_ms", CFG_I32, CFG_OFF(idle_poll_ms), 0 },

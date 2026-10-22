@@ -9,7 +9,11 @@ Type=simple
 # config from the default on the first start, for this machine's
 # interface.
 ExecStartPre=+/usr/local/seawall/libexec/voidgate-mkconf
-ExecStart=/usr/local/seawall/sbin/voidgate -c /usr/local/seawall/etc/voidgate/voidgate.conf
+# -g voidgate: the control socket, /run/voidgate.sock, is 0660, group
+# voidgate (sysusers.d/voidgate.conf): root and the group's members, such
+# as sw_configd, may connect, with the whole protocol. For root alone,
+# drop -g with "systemctl edit voidgate".
+ExecStart=/usr/local/seawall/sbin/voidgate -c /usr/local/seawall/etc/voidgate/voidgate.conf -g voidgate
 Restart=on-failure
 RestartSec=2
 AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_SYS_ADMIN
