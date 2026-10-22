@@ -90,11 +90,14 @@ clean:
 # The config is made on the first start, by voidgate-mkconf from the
 # default in share/voidgate: an install never replaces the operator's,
 # and each machine gets its own interface. The unit runs
-# /usr/local/seawall/sbin/voidgate whatever PREFIX is. The group voidgate,
-# which the unit gives the control socket to (-g), is declared, not created:
-# systemd-sysusers creates it now (not when staging into DESTDIR), and at
-# boot on a machine without it.
+# /usr/local/seawall/sbin/voidgate whatever PREFIX is. The unit gives the
+# control socket to the group voidgate (-g), from the seawall repo;
+# without it (checked unless staging into DESTDIR) only root could
+# connect, so nothing is installed.
 install: all install-lua
+	[ -n "$(DESTDIR)" ] || getent group voidgate >/dev/null || { \
+		echo "group voidgate missing: install seawall first" >&2; \
+		exit 1; }
 	install -D -m 0755 voidgate $(DESTDIR)$(PREFIX)/sbin/voidgate
 	install -D -m 0755 voidgatectl $(DESTDIR)$(PREFIX)/bin/voidgatectl
 	install -D -m 0755 voidgate-mkconf \
@@ -104,19 +107,14 @@ install: all install-lua
 	install -d -m 0755 $(DESTDIR)$(CONFDIR)
 	install -D -m 0644 voidgate.service \
 		$(DESTDIR)/etc/systemd/system/voidgate.service
-	install -D -m 0644 sysusers.d/voidgate.conf \
-		$(DESTDIR)/etc/sysusers.d/voidgate.conf
-	[ -n "$(DESTDIR)" ] || systemd-sysusers /etc/sysusers.d/voidgate.conf
 
-# keeps $(CONFDIR): the configuration outlives the program; and the
-# group voidgate
+# keeps $(CONFDIR): the configuration outlives the program
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/sbin/voidgate \
 		$(DESTDIR)$(PREFIX)/bin/voidgatectl \
 		$(DESTDIR)$(PREFIX)/libexec/voidgate-mkconf \
 		$(DESTDIR)$(PREFIX)/share/voidgate/voidgate.conf \
 		$(DESTDIR)/etc/systemd/system/voidgate.service \
-		$(DESTDIR)/etc/sysusers.d/voidgate.conf \
 		$(DESTDIR)$(LUA_DIR)/resty/voidgate.lua
 	-rmdir $(DESTDIR)$(PREFIX)/share/voidgate
 

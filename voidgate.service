@@ -10,7 +10,7 @@ Type=simple
 # interface.
 ExecStartPre=+/usr/local/seawall/libexec/voidgate-mkconf
 # -g voidgate: the control socket, /run/voidgate.sock, is 0660, group
-# voidgate (sysusers.d/voidgate.conf): root and the group's members, such
+# voidgate (from the seawall repo): root and the group's members, such
 # as sw_configd, may connect, with the whole protocol. For root alone,
 # drop -g with "systemctl edit voidgate".
 ExecStart=/usr/local/seawall/sbin/voidgate -c /usr/local/seawall/etc/voidgate/voidgate.conf -g voidgate

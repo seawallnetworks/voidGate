@@ -399,8 +399,8 @@ OpenResty. For another OpenResty, Kong or APISIX, set
 
 The socket is created `0660 root:root`. voidgate's `-g group` `chown`s it
 to that group after `bind`, so gateway workers can connect. The shipped
-unit passes `-g voidgate`, a group `make install` declares
-(`sysusers.d/voidgate.conf`): the workers' user joins it
+unit passes `-g voidgate`, a group the seawall repo declares: the
+workers' user joins it
 (`usermod -aG voidgate kong`), or `-g` names the workers' own group.
 
 | Gateway | Common worker user, group | Set by |

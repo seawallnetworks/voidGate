@@ -157,9 +157,9 @@ sudo make install-lua LUA_DIR=/opt/lualib
 ```
 
 nginx workers do not run as root. The shipped unit runs `voidgate -g
-voidgate`, so `/run/voidgate.sock` is `0660 root:voidgate`; `make install`
-declares the group (`sysusers.d/voidgate.conf`). Add the workers' user to
-it and restart the gateway:
+voidgate`, so `/run/voidgate.sock` is `0660 root:voidgate`; the group
+comes from the seawall repo, which `make install` needs first. Add the
+workers' user to it and restart the gateway:
 
 ```sh
 sudo usermod -aG voidgate kong
