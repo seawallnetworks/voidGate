@@ -12,9 +12,18 @@ ExecStartPre=+/usr/local/seawall/libexec/voidgate-mkconf
 ExecStart=/usr/local/seawall/sbin/voidgate -c /usr/local/seawall/etc/voidgate/voidgate.conf
 Restart=on-failure
 RestartSec=2
-AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_PERFMON
-CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_DAC_OVERRIDE CAP_CHOWN
+AmbientCapabilities=CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_CHOWN
 LimitMEMLOCK=infinity
+# Hardening: root, but it writes only its pins, its socket and pid in /run
+# and its log in /var/log. A log_file or pid_file elsewhere wants that
+# directory here too ("systemctl edit voidgate").
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/sys/fs/bpf /run /var/log
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
