@@ -43,6 +43,9 @@ static void remote_cb(int family, const uint8_t *addr,
     const struct host_counters *sum, void *arg);
 static void walk_remotes(struct vg_ctrl *c, double dt);
 static void expire_drops(struct vg_ctrl *c);
+static const char *reason_name(uint32_t reason);
+static void logged_list(char *out, size_t size,
+    const struct vg_logged_drop *v, int n);
 static void log_drops(struct vg_ctrl *c);
 static double tick_dt(struct vg_ctrl *c);
 
@@ -416,7 +419,8 @@ drop_add(struct vg_ctrl *c, const struct vg_cidr *p, uint32_t reason,
     }
 
     if (vg_verbose >= 1) {
-        vg_log("drop %s reason %u%s", buf, reason, again ? " (again)" : "");
+        vg_log("drop %s (%s)%s", buf, reason_name(reason),
+               again ? " again" : "");
     }
 
     if (again) {
@@ -424,6 +428,12 @@ drop_add(struct vg_ctrl *c, const struct vg_cidr *p, uint32_t reason,
 
     } else {
         c->drops_new[reason <= VG_REASON_TIMED ? reason : 0]++;
+
+        if (c->drops_shown_n < VG_LOG_CIDRS) {
+            c->drops_shown[c->drops_shown_n].cidr = *p;
+            c->drops_shown[c->drops_shown_n].reason = reason;
+            c->drops_shown_n++;
+        }
     }
 
     return 0;
@@ -450,6 +460,7 @@ vg_ctrl_undrop(struct vg_ctrl *c, const struct vg_cidr *p)
     char buf[80];
     struct vg_drop_rec *r = drops_find(c, p);
 
+    log_drops(c);
     vg_cidr_to_str(p, buf, sizeof(buf));
 
     if (r != NULL) {
@@ -481,6 +492,8 @@ vg_ctrl_prune_protected(struct vg_ctrl *c)
     struct vg_list *l, *next;
     struct vg_drop_rec *r;
     int n = 0;
+
+    log_drops(c);
 
     vg_list_for_each_safe(l, next, &c->drop_all) {
         r = vg_list_entry(l, struct vg_drop_rec, all);
@@ -526,6 +539,7 @@ vg_ctrl_arm(struct vg_ctrl *c, const char *why)
 int
 vg_ctrl_disarm(struct vg_ctrl *c, const char *why)
 {
+    log_drops(c);
     vg_drop_flush(c->maps);
     drops_reset(c);
 
@@ -692,7 +706,8 @@ expire_drops(struct vg_ctrl *c)
     time_t now = time(NULL);
     struct vg_list *l, *next;
     struct vg_drop_rec *r;
-    char buf[80];
+    char buf[80], list[VG_LOG_CIDRS * 64];
+    struct vg_logged_drop shown[VG_LOG_CIDRS];
     int n = 0, by[VG_REASON_TIMED + 1] = { 0 };
 
     vg_list_for_each_safe(l, next, &c->drop_all) {
@@ -706,6 +721,12 @@ expire_drops(struct vg_ctrl *c)
             continue;
         }
 
+        /* Copied first: drop_remove hands r back to the free list. */
+        if (n < VG_LOG_CIDRS) {
+            shown[n].cidr = r->cidr;
+            shown[n].reason = r->reason;
+        }
+
         /* A failed lift keeps r listed; the next tick retries it. */
         if (drop_remove(c, r) < 0) {
             continue;
@@ -713,43 +734,122 @@ expire_drops(struct vg_ctrl *c)
 
         if (vg_verbose >= 1) {
             vg_cidr_to_str(&r->cidr, buf, sizeof(buf));
-            vg_log("expire %s reason %u", buf, r->reason);
+            vg_log("expire %s (%s)", buf, reason_name(r->reason));
         }
 
         by[r->reason <= VG_REASON_TIMED ? r->reason : 0]++;
         n++;
     }
 
-    if (n > 0) {
-        vg_log("expired %d drop%s (policy %d, aggregate %d, timed %d), "
-               "%d left", n, n == 1 ? "" : "s", by[VG_REASON_POLICY],
-               by[VG_REASON_AGGREGATE], by[VG_REASON_TIMED], c->drop_count);
+    if (n == 0) {
+        return;
+    }
+
+    logged_list(list, sizeof(list), shown, n);
+
+    if (n <= VG_LOG_CIDRS) {
+        vg_log("expired %s; %d left", list, c->drop_count);
+
+    } else {
+        vg_log("expired %d drops (policy %d, aggregate %d, timed %d), "
+               "first %s; %d left", n, by[VG_REASON_POLICY],
+               by[VG_REASON_AGGREGATE], by[VG_REASON_TIMED], list,
+               c->drop_count);
+    }
+}
+
+
+static const char *
+reason_name(uint32_t reason)
+{
+    switch (reason) {
+    case VG_REASON_MANUAL:
+        return "manual";
+    case VG_REASON_POLICY:
+        return "policy";
+    case VG_REASON_AGGREGATE:
+        return "aggregate";
+    case VG_REASON_TIMED:
+        return "timed";
+    default:
+        return "unknown";
+    }
+}
+
+
+/* "203.0.113.7/32 (policy), 198.51.100.0/24 (aggregate)": the first
+ * VG_LOG_CIDRS of n, so a burst still logs one short line.
+ */
+static void
+logged_list(char *out, size_t size, const struct vg_logged_drop *v, int n)
+{
+    char buf[80];
+    size_t used = 0;
+    int i, w;
+
+    out[0] = '\0';
+
+    for (i = 0; i < n && i < VG_LOG_CIDRS; i++) {
+        vg_cidr_to_str(&v[i].cidr, buf, sizeof(buf));
+        w = snprintf(out + used, size - used, "%s%s (%s)", i ? ", " : "",
+                     buf, reason_name(v[i].reason));
+
+        if (w < 0 || (size_t) w >= size - used) {
+            break;
+        }
+
+        used += (size_t) w;
     }
 }
 
 
 /* One log line per tick for every drop added since the last one, however
- * many: a ban burst can add thousands. -v adds a line per prefix.
+ * many: a ban burst can add thousands. It names the first VG_LOG_CIDRS
+ * prefixes; -v adds a line per prefix. An undrop, a disarm or a reload
+ * lift logs the pending line first, so the log keeps its order and never
+ * names a prefix as dropped after it was lifted.
  */
 static void
 log_drops(struct vg_ctrl *c)
 {
+    char list[VG_LOG_CIDRS * 64], again[32];
     int i, n = 0;
 
     for (i = 0; i <= VG_REASON_TIMED; i++) {
         n += c->drops_new[i];
     }
 
-    if (n > 0 || c->drops_again > 0) {
-        vg_log("dropped %d prefix%s (manual %d, policy %d, aggregate %d, "
-               "timed %d), %d again, %d listed", n, n == 1 ? "" : "es",
-               c->drops_new[VG_REASON_MANUAL], c->drops_new[VG_REASON_POLICY],
-               c->drops_new[VG_REASON_AGGREGATE],
-               c->drops_new[VG_REASON_TIMED], c->drops_again, c->drop_count);
+    again[0] = '\0';
+
+    if (c->drops_again > 0) {
+        snprintf(again, sizeof(again), "%d again, ", c->drops_again);
+    }
+
+    if (n == 0 && c->drops_again > 0) {
+        vg_log("dropped %d listed prefix%s again; %d listed",
+               c->drops_again, c->drops_again == 1 ? "" : "es",
+               c->drop_count);
+
+    } else if (n > 0) {
+        logged_list(list, sizeof(list), c->drops_shown, c->drops_shown_n);
+
+        if (n <= VG_LOG_CIDRS) {
+            vg_log("dropped %s; %s%d listed", list, again, c->drop_count);
+
+        } else {
+            vg_log("dropped %d prefixes (manual %d, policy %d, "
+                   "aggregate %d, timed %d), first %s; %s%d listed", n,
+                   c->drops_new[VG_REASON_MANUAL],
+                   c->drops_new[VG_REASON_POLICY],
+                   c->drops_new[VG_REASON_AGGREGATE],
+                   c->drops_new[VG_REASON_TIMED], list, again,
+                   c->drop_count);
+        }
     }
 
     memset(c->drops_new, 0, sizeof(c->drops_new));
     c->drops_again = 0;
+    c->drops_shown_n = 0;
 }
 
 

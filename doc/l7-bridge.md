@@ -243,8 +243,8 @@ call, and logging was over 90 % of the cost of a ban burst.
 
 | Event | Default | With `-v` |
 |---|---|---|
-| drops added since the last tick | one line per tick: `dropped 9800 prefixes (manual 0, policy 70, aggregate 3, timed 9727), 41 again, 9812 listed` | plus `drop <cidr> reason N`, and `(again)` for a re-drop |
-| drops expired this tick | one line per tick: `expired 9873 drops (policy 70, aggregate 3, timed 9800), 12 left` | plus `expire <cidr> reason N` |
+| drops added since the last tick | one line per tick, naming up to 8: `dropped 203.0.113.7/32 (policy), 198.51.100.0/24 (aggregate); 2 listed`; past 8, counts and the first 8: `dropped 9800 prefixes (manual 0, policy 70, aggregate 3, timed 9727), first 198.18.0.1/32 (timed), …; 41 again, 9812 listed` | plus `drop <cidr> (<reason>)`, and `again` for a re-drop |
+| drops expired this tick | one line per tick, the same way: `expired 203.0.113.7/32 (policy); 1 left`, or `expired 9873 drops (policy 70, aggregate 3, timed 9800), first …; 12 left` | plus `expire <cidr> (<reason>)` |
 | `undrop` from the socket | `undrop <cidr>` | same |
 | reload lifting a protected drop | `reload: undrop <cidr> (now covers local/allow)` | same |
 | refusal, full list, map failure | one line each | same |

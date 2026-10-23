@@ -27,6 +27,7 @@ static void test_expire_log(void);
 static void test_drop_log(void);
 static void test_pool(void);
 static int log_count(const char *path, const char *needle);
+static int log_line_of(const char *path, const char *needle);
 static int log_start(char *path);
 static void log_stop(int saved);
 
@@ -455,7 +456,7 @@ static int
 log_count(const char *path, const char *needle)
 {
     FILE *fp = fopen(path, "r");
-    char line[512];
+    char line[2048];    /* a summary names up to VG_LOG_CIDRS prefixes */
     int n = 0;
 
     assert(fp != NULL);
@@ -467,6 +468,31 @@ log_count(const char *path, const char *needle)
     fclose(fp);
 
     return n;
+}
+
+
+/* 1-based line of the first match, or 0. */
+static int
+log_line_of(const char *path, const char *needle)
+{
+    FILE *fp = fopen(path, "r");
+    char line[2048];
+    int n = 0;
+
+    assert(fp != NULL);
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        n++;
+
+        if (strstr(line, needle) != NULL) {
+            fclose(fp);
+            return n;
+        }
+    }
+
+    fclose(fp);
+
+    return 0;
 }
 
 
@@ -548,8 +574,9 @@ test_expire_log(void)
         log_stop(saved);
 
         assert(c.drop_count == 0);
-        assert(log_count(path, "expired 4 drops (policy 1, aggregate 0, "
-                               "timed 3), 0 left") == 1);
+        assert(log_count(path, "expired 198.18.9.1/32 (timed), "
+                               "198.18.9.2/32 (timed), 198.18.9.3/32 (timed), "
+                               "198.18.9.4/32 (policy); 0 left") == 1);
         assert(log_count(path, "expired") == 1);
         assert(log_count(path, "undrop") == 0);
         assert(log_count(path, "expire 198.18.9.") == (verbose ? 4 : 0));
@@ -608,18 +635,113 @@ test_drop_log(void)
         vg_verbose = 0;
         log_stop(saved);
 
-        assert(log_count(path, "dropped 4 prefixes (manual 0, policy 1, "
-                               "aggregate 0, timed 3), 1 again, 4 listed")
+        assert(log_count(path, "dropped 198.18.10.1/32 (timed), "
+                               "198.18.10.2/32 (timed), 198.18.10.3/32 (timed), "
+                               "198.18.10.4/32 (policy); 1 again, 4 listed")
                == 1);
         assert(log_count(path, "[INFO] dropped ") == 1);
         assert(log_count(path, "refuse drop 169.254.169.254/32") == 1);
         assert(log_count(path, "drop 198.18.10.") == (verbose ? 5 : 0));
-        assert(log_count(path, "drop 198.18.10.3/32 reason 4 (again)")
+        assert(log_count(path, "drop 198.18.10.3/32 (timed) again")
                == verbose);
 
         unlink(path);
         vg_ctrl_free(&c);
     }
+}
+
+
+/* Past VG_LOG_CIDRS new drops in a tick, the line counts them by reason
+ * and names only the first ones; a tick of re-drops alone says so.
+ */
+static void
+test_drop_log_burst(void)
+{
+    struct vg_config cfg;
+    struct vg_ctrl c;
+    struct vg_cidr p;
+    char path[32];
+    int saved, i, round;
+
+    vg_config_defaults(&cfg);
+    cfg.remote_map_size = 16;
+    cfg.wake_pps = 0;
+    cfg.wake_mbps = 0;
+    nitems = 0;
+    assert(vg_ctrl_init(&c, &cfg, NULL, NULL, NULL) == 0);
+    snprintf(path, sizeof(path), "/tmp/vg-burst-log-XXXXXX");
+    saved = log_start(path);
+
+    memset(&p, 0, sizeof(p));
+    p.family = AF_INET;
+    p.prefixlen = 32;
+    p.addr[0] = 198;
+    p.addr[1] = 18;
+    p.addr[2] = 11;
+
+    for (round = 0; round < 2; round++) {           /* new, then again */
+        for (i = 1; i <= VG_LOG_CIDRS + 2; i++) {
+            p.addr[3] = (uint8_t) i;
+            assert(vg_ctrl_drop_ttl(&c, &p, 60) == 0);
+        }
+
+        assert(tick(&c) == 0);
+    }
+
+    log_stop(saved);
+
+    assert(log_count(path, "dropped 10 prefixes (manual 0, policy 0, "
+                           "aggregate 0, timed 10), first 198.18.11.1/32 "
+                           "(timed), ") == 1);
+    assert(log_count(path, "198.18.11.8/32 (timed); 10 listed") == 1);
+    assert(log_count(path, "198.18.11.9/32") == 0);
+    assert(log_count(path, "dropped 10 listed prefixes again; 10 listed")
+           == 1);
+
+    unlink(path);
+    vg_ctrl_free(&c);
+}
+
+
+/* An undrop or disarm before the tick logs the pending drops first: the
+ * log reads in order, and the tick does not name a lifted prefix.
+ */
+static void
+test_drop_log_order(void)
+{
+    struct vg_config cfg;
+    struct vg_ctrl c;
+    struct vg_cidr a, b;
+    char path[32];
+    int saved;
+
+    vg_config_defaults(&cfg);
+    cfg.remote_map_size = 16;
+    cfg.wake_pps = 0;
+    cfg.wake_mbps = 0;
+    nitems = 0;
+    assert(vg_parse_cidr("198.18.12.1/32", &a) == 0);
+    assert(vg_parse_cidr("198.18.12.2/32", &b) == 0);
+    assert(vg_ctrl_init(&c, &cfg, NULL, NULL, NULL) == 0);
+    snprintf(path, sizeof(path), "/tmp/vg-order-log-XXXXXX");
+    saved = log_start(path);
+
+    assert(vg_ctrl_drop_ttl(&c, &a, 60) == 0);
+    assert(vg_ctrl_undrop(&c, &a) == 0);
+    assert(vg_ctrl_drop_ttl(&c, &b, 60) == 0);
+    assert(vg_ctrl_disarm(&c, "test") == 0);
+    assert(tick(&c) == 0);
+
+    log_stop(saved);
+
+    assert(log_count(path, "dropped 198.18.12.1/32 (timed); 1 listed") == 1);
+    assert(log_count(path, "dropped 198.18.12.2/32 (timed); 1 listed") == 1);
+    assert(log_count(path, "[INFO] dropped ") == 2);
+    assert(log_line_of(path, "dropped 198.18.12.1/32")
+           < log_line_of(path, "undrop 198.18.12.1/32"));
+
+    unlink(path);
+    vg_ctrl_free(&c);
 }
 
 
@@ -820,6 +942,8 @@ main(void)
     test_del_fail();
     test_expire_log();
     test_drop_log();
+    test_drop_log_burst();
+    test_drop_log_order();
     test_pool();
     puts("control-plane regression tests passed");
 

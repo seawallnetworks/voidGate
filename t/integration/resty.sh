@@ -144,13 +144,13 @@ for i in $(seq 50); do
 done
 get '/ban?ip=2001:db8::20' > /dev/null
 wait_drops $'198.18.0.20/32 4\n2001:db8::20/128 4'
-[[ $(grep -c 'drop 198.18.0.20/32 reason 4' "$work/daemon.log") == 1 ]]
+[[ $(grep -c 'drop 198.18.0.20/32 (timed)' "$work/daemon.log") == 1 ]]
 # The per-tick summary lands on the next tick (idle_poll_ms).
 for i in $(seq 30); do
-    grep -q '\] dropped [0-9]* prefix.*timed [1-9]' "$work/daemon.log" && break
+    grep -q '\] dropped .*198.18.0.20/32 (timed)' "$work/daemon.log" && break
     sleep 0.1
 done
-grep -q '\] dropped [0-9]* prefix.*timed [1-9]' "$work/daemon.log"
+grep -q '\] dropped .*198.18.0.20/32 (timed)' "$work/daemon.log"
 get '/ban?ip=1.2.3.4/24' > /dev/null
 get '/ban_now_log?ip=198.18.0.30' > /dev/null
 sleep 0.2

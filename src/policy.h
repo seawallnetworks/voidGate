@@ -15,6 +15,16 @@ enum vg_state { VG_IDLE = 0, VG_ACTIVE = 1 };
 
 #define VG_SNAP_BUCKETS  4096
 
+/* Prefixes a tick's "dropped" and "expired" lines name; past this many
+ * the line gives counts by reason after the first ones.
+ */
+#define VG_LOG_CIDRS  8
+
+struct vg_logged_drop {
+    struct vg_cidr          cidr;
+    uint32_t                reason;
+};
+
 /* One listed drop. Records live in drop_pool and never move, so the list
  * nodes below stay valid while linked.
  */
@@ -53,6 +63,8 @@ struct vg_ctrl {
     unsigned                drop_nbuckets;  /* power of two */
     int                     drops_new[VG_REASON_TIMED + 1]; /* this tick */
     int                     drops_again;    /* re-drops this tick */
+    struct vg_logged_drop   drops_shown[VG_LOG_CIDRS]; /* first new ones */
+    int                     drops_shown_n;
     struct vg_snap_ent     *snap_pool;
     struct vg_snap_ent     *snap_free;
     struct vg_snap_ent     *snaps[VG_SNAP_BUCKETS];
