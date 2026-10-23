@@ -1,24 +1,23 @@
 #!/bin/bash
-# Integration: veth pair, daemon starts IDLE, flood wakes it, drop works,
-# SSH-like TCP still passes. VG_HOOK=tc judges at TC ingress.
+# Integration: veth pair, daemon starts IDLE, flood wakes it, drop works.
+# VG_HOOK=tc judges at TC ingress. Runs in private namespaces
+# (t/bin/create_env.sh), so a running voidgate is never reached.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-BIN="$ROOT/voidgate"
-CTL="$ROOT/voidgatectl"
-CONF=$(mktemp)
-NS=vgtest$$
-VETH_A=vga$$
-VETH_B=vgb$$
+. "$(dirname "$0")/../bin/create_env.sh"
+BIN="$root/voidgate"
+CTL="$root/voidgatectl"
+CONF=$work/netns.conf
+NS=peer
+DAEMON_PID=
 cleanup() {
-  sudo kill "$DAEMON_PID" 2>/dev/null || true
-  sudo ip netns del "$NS" 2>/dev/null || true
-  sudo ip link del "$VETH_A" 2>/dev/null || true
-  rm -f "$CONF"
+  [[ -n $DAEMON_PID ]] && kill "$DAEMON_PID" 2>/dev/null || true
+  ip netns del "$NS" 2>/dev/null || true
 }
 trap cleanup EXIT
 
 cat > "$CONF" <<EOF
-interface = $VETH_A
+interface = test0
+log_file = $work/voidgate.log
 xdp_mode = skb
 wake_pps = 50
 wake_mbps = 1000
@@ -34,28 +33,28 @@ metrics_port = 0
 hook = ${VG_HOOK:-auto}
 EOF
 
-sudo ip netns add "$NS"
-sudo ip link add "$VETH_A" type veth peer name "$VETH_B"
-sudo ip link set "$VETH_B" netns "$NS"
-sudo ip addr add 198.51.100.10/24 dev "$VETH_A"
-sudo ip link set "$VETH_A" up
-sudo ip netns exec "$NS" ip addr add 198.51.100.1/24 dev "$VETH_B"
-sudo ip netns exec "$NS" ip link set "$VETH_B" up
-sudo ip netns exec "$NS" ip link set lo up
-sudo ip netns exec "$NS" ping -c 1 -W 1 198.51.100.10 >/dev/null || true
+# The flood comes from a namespace of its own, over the veth: sent from
+# this one, traffic to a local address would take lo.
+ip netns add "$NS"
+ip link set peer0 netns "$NS"
+ip addr add 198.51.100.10/24 dev test0
+ip netns exec "$NS" ip addr add 198.51.100.1/24 dev peer0
+ip netns exec "$NS" ip link set peer0 up
+ip netns exec "$NS" ip link set lo up
+ip netns exec "$NS" ping -c 1 -W 1 198.51.100.10 >/dev/null || true
 
-sudo "$BIN" -c "$CONF" -i "$VETH_A" &
+"$BIN" -c "$CONF" &
 DAEMON_PID=$!
 for _ in $(seq 50); do
-  sudo "$CTL" status >/dev/null 2>&1 && break
+  "$CTL" status >/dev/null 2>&1 && break
   sleep 0.1
 done
-STATUS=$(sudo "$CTL" status || true)
+STATUS=$("$CTL" status || true)
 echo "initial: $STATUS"
 echo "$STATUS" | grep -q 'state=idle' || { echo "expected idle"; exit 1; }
 
 flood() {
-  sudo ip netns exec "$NS" python3 - <<'PY'
+  ip netns exec "$NS" python3 - <<'PY'
 import socket, time
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 end = time.time() + 2
@@ -70,26 +69,26 @@ PY
 
 flood
 sleep 0.5
-STATUS=$(sudo "$CTL" status)
+STATUS=$("$CTL" status)
 echo "during flood: $STATUS"
 echo "$STATUS" | grep -q 'state=active' || {
     echo "expected active after flood"
-    sudo "$CTL" stats
+    "$CTL" stats
     exit 1
 }
 
-sudo "$CTL" drop 198.51.100.1/32
-sudo "$CTL" drops
+"$CTL" drop 198.51.100.1/32
+"$CTL" drops
 flood
-STATS=$(sudo "$CTL" stats)
+STATS=$("$CTL" stats)
 echo "stats after drop: $STATS"
 echo "$STATS" | grep -E 'dropped=[1-9]' || {
     echo "expected dropped > 0"
     exit 1
 }
 
-sudo "$CTL" disarm
-STATUS=$(sudo "$CTL" status)
+"$CTL" disarm
+STATUS=$("$CTL" status)
 echo "after disarm: $STATUS"
 echo "$STATUS" | grep -q 'state=idle' || {
     echo "expected idle after disarm"
