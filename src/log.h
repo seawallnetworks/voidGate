@@ -51,10 +51,10 @@ vg_log_prefix(const char *level, const char *sgr)
 
     if (vg_log_color()) {
         fprintf(stderr, VG_SGR_DIM "%s" VG_SGR_RESET
-                " voidGate %s[%s]" VG_SGR_RESET " ", tbuf, sgr, level);
+                " voidgate %s[%s]" VG_SGR_RESET " ", tbuf, sgr, level);
 
     } else {
-        fprintf(stderr, "%s voidGate [%s] ", tbuf, level);
+        fprintf(stderr, "%s voidgate [%s] ", tbuf, level);
     }
 }
 

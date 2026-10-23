@@ -1,4 +1,4 @@
-# voidGate
+# voidgate
 
 Multi-layer XDP shield for a single Linux VM. Silent unless the instance
 is under attack.
@@ -133,7 +133,7 @@ config fails instead, `hook = tc` always takes TC.
 
 ## OpenResty integration
 
-voidGate is not a WAF. Let OpenResty, or a gateway built on it such as Kong
+voidgate is not a WAF. Let OpenResty, or a gateway built on it such as Kong
 or APISIX, decide which client is abusive (`limit_req`, failed logins, bot
 rules) and push that address down to XDP with a timed drop. The design and
 its trade-offs are in [`doc/l7-bridge.md`](doc/l7-bridge.md).

@@ -3,12 +3,12 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>voidGate — drop DDoS floods at the NIC</title>
-    <meta name="description" content="voidGate protects a single Linux VM from DDoS floods with XDP. Idle it only counts packets; under attack it drops the sources in the kernel. IPv4 and IPv6.">
+    <title>voidgate — drop DDoS floods at the NIC</title>
+    <meta name="description" content="voidgate protects a single Linux VM from DDoS floods with XDP. Idle it only counts packets; under attack it drops the sources in the kernel. IPv4 and IPv6.">
     <meta name="theme-color" content="#05060a">
     <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
     <link rel="canonical" href="https://voidgate.co/">
-    <meta property="og:title" content="voidGate">
+    <meta property="og:title" content="voidgate">
     <meta property="og:description" content="Drop DDoS floods at the NIC. Stay out of the way until then. XDP shield for one Linux VM.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://voidgate.co/">
@@ -22,7 +22,7 @@
         <div class="wrap header-inner">
             <a class="brand" href="index.html">
                 <img src="img/mark.svg" width="22" height="22" alt="">
-                voidGate
+                voidgate
             </a>
             <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
             <nav id="site-nav" class="site-nav">
@@ -39,7 +39,7 @@
             <div class="hero-copy">
                 <p class="kicker">XDP DDoS shield · one Linux VM</p>
                 <h1 class="display">Drop floods at the NIC. Stay out of the way until then.</h1>
-                <p class="lede">voidGate guards a single Linux VM. While traffic is normal, its XDP program only counts packets and passes them. When the NIC floods, it arms, finds the sources, and drops them in the kernel, before the network stack sees them. IPv4 and IPv6 together.</p>
+                <p class="lede">voidgate guards a single Linux VM. While traffic is normal, its XDP program only counts packets and passes them. When the NIC floods, it arms, finds the sources, and drops them in the kernel, before the network stack sees them. IPv4 and IPv6 together.</p>
                 <div class="hero-actions">
                     <a class="btn btn-pass" href="install.html">Build &amp; run</a>
                     <a class="btn btn-ghost" href="architecture.html">How it decides</a>
@@ -95,7 +95,7 @@ sudo ./voidgatectl status</code></pre>
                     </dl>
                 </div>
                 <div class="datapath-body">
-                    <svg class="flow flow-wide" viewBox="0 0 1000 336" role="img" aria-label="Packet path through voidGate. Idle: rx counter, then XDP_PASS with no parsing. Active: parse, then allowed traffic passes early, drop-tree matches are dropped, everything else is counted and passed. A userspace policy reads the counters, identifies attackers, and puts them in the drop tree.">
+                    <svg class="flow flow-wide" viewBox="0 0 1000 336" role="img" aria-label="Packet path through voidgate. Idle: rx counter, then XDP_PASS with no parsing. Active: parse, then allowed traffic passes early, drop-tree matches are dropped, everything else is counted and passed. A userspace policy reads the counters, identifies attackers, and puts them in the drop tree.">
                         <defs>
                             <marker id="w-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0 L10 5 L0 10 Z"/></marker>
                             <marker id="w-ah-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0 L10 5 L0 10 Z"/></marker>
@@ -159,7 +159,7 @@ sudo ./voidgatectl status</code></pre>
                         </g>
                         <g class="pkts"></g>
                     </svg>
-                    <svg class="flow flow-tall" viewBox="0 0 360 610" role="img" aria-label="Packet path through voidGate. Idle: rx counter, then XDP_PASS with no parsing. Active: parse, then allowed traffic passes early, drop-tree matches are dropped, everything else is counted and passed. A userspace policy reads the counters, identifies attackers, and puts them in the drop tree.">
+                    <svg class="flow flow-tall" viewBox="0 0 360 610" role="img" aria-label="Packet path through voidgate. Idle: rx counter, then XDP_PASS with no parsing. Active: parse, then allowed traffic passes early, drop-tree matches are dropped, everything else is counted and passed. A userspace policy reads the counters, identifies attackers, and puts them in the drop tree.">
                         <defs>
                             <marker id="t-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0 L10 5 L0 10 Z"/></marker>
                             <marker id="t-ah-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah-idle" d="M0 0 L10 5 L0 10 Z"/></marker>
@@ -235,7 +235,7 @@ sudo ./voidgatectl status</code></pre>
         <section class="band">
             <div class="wrap">
                 <div class="section-head">
-                    <h2>Why voidGate</h2>
+                    <h2>Why voidgate</h2>
                     <span class="idx">01 / problem → approach</span>
                 </div>
                 <div class="why">
@@ -424,7 +424,7 @@ sudo ./voidgatectl status</code></pre>
             <h2>Put it on the NIC and forget it's there.</h2>
             <p>One daemon, one config file, one systemd unit.</p>
             <div class="hero-actions">
-                <a class="btn btn-pass" href="install.html">Install voidGate</a>
+                <a class="btn btn-pass" href="install.html">Install voidgate</a>
                 <a class="btn btn-ghost" href="https://github.com/seawallnetworks/voidgate">View source</a>
             </div>
         </section>
@@ -433,7 +433,7 @@ sudo ./voidgatectl status</code></pre>
     <footer class="site-footer">
         <div class="wrap footer-inner">
             <div>
-                <strong>voidGate</strong>
+                <strong>voidgate</strong>
                 <p>XDP DDoS shield for one Linux VM. Userspace Apache-2.0 · BPF GPL-2.0-only.</p>
                 <div class="footer-nav">
                     <a href="index.html">Home</a>

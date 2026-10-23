@@ -1,4 +1,4 @@
-# voidGate
+# voidgate
 CC      ?= gcc
 CLANG   ?= clang
 LLVM_STRIP ?= llvm-strip

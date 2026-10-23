@@ -1,4 +1,4 @@
-# voidGate test suite
+# voidgate test suite
 
 Data-driven tests for the XDP data plane and the control socket, written
 with Perl [Test::Base] and run against the **real `voidgate` daemon**.

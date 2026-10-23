@@ -2,7 +2,7 @@
 
 Let OpenResty, or a gateway built on it (Kong, APISIX), decide which client
 is abusive and push that address down to XDP with a drop that expires by
-itself. voidGate stays a gate, not a WAF.
+itself. voidgate stays a gate, not a WAF.
 
 Contents:
 
@@ -25,18 +25,18 @@ Contents:
 
 ## 1. Problem
 
-voidGate drops floods at XDP based on packet and byte rates. It cannot see
+voidgate drops floods at XDP based on packet and byte rates. It cannot see
 HTTP, so it cannot tell a credential stuffer, a scraper or a slow request
 flood from a real user. The web tier can: OpenResty's `limit_req`, failed
 logins, bot rules.
 
 But once the web tier has decided, its own enforcement is expensive: every
 banned request still costs an accept, a TLS handshake and the HTTP parser
-before nginx returns 403. XDP sits in front of all of that, and voidGate
+before nginx returns 403. XDP sits in front of all of that, and voidgate
 already keeps a drop tree there.
 
 **Goal:** let the gateway push "drop this address for N seconds" into
-voidGate's drop tree, without blocking request handling, and keep the
+voidgate's drop tree, without blocking request handling, and keep the
 daemon fast when bans arrive by the thousand.
 
 ## 2. Scope
@@ -52,8 +52,8 @@ In scope:
 
 Out of scope:
 
-- **No WAF.** voidGate does not parse HTTP, match signatures or rate-limit
-  requests. The gateway detects; voidGate enforces.
+- **No WAF.** voidgate does not parse HTTP, match signatures or rate-limit
+  requests. The gateway detects; voidgate enforces.
 - No other deciders yet (fail2ban, HAProxy, ...). Anything that can run
   `voidgatectl drop <ip> ttl=<sec>` works, but nothing else ships (§15).
 - No persistence and no per-caller permissions (§11).
@@ -210,7 +210,7 @@ struct vg_drop_rec {
   the prefix length is part of the key (`/32` and `/24` on the same address
   are separate drops).
 - **`src/list.h`** is our own `vg_list` / `vg_hlist`. The kernel's
-  `list.h` is GPL-2.0 and voidGate's userspace is Apache-2.0, so the idea
+  `list.h` is GPL-2.0 and voidgate's userspace is Apache-2.0, so the idea
   is reused, not the code.
 
 ### 6.3 Operations

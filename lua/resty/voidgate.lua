@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: Apache-2.0
 --
--- voidGate client for OpenResty (and OpenResty-based gateways such as
+-- voidgate client for OpenResty (and OpenResty-based gateways such as
 -- Kong and APISIX). Talks to the daemon's Unix socket with a non-blocking
 -- ngx.socket.tcp cosocket. Cosockets yield, so the methods and M.ban_now()
 -- run in rewrite, access, content or timer context; from log,

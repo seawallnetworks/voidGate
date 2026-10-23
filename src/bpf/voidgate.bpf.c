@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* voidGate data plane.
+/* voidgate data plane.
  *
  * IDLE  (cfg.armed == 0): bump rx counters, PASS. No parse, no LPM, no LRU.
  * ACTIVE (cfg.armed == 1): whitelist → drop LPM → count → PASS|DROP.
@@ -703,7 +703,7 @@ rx_count(struct vg_metrics *m, __u64 pkts, __u64 bytes)
 }
 
 
-/* libxdp's dispatcher runs voidGate ahead of mini-fw (priority 20), and
+/* libxdp's dispatcher runs voidgate ahead of mini-fw (priority 20), and
  * only a pass goes on to the next program. Frags: the headers are in the
  * first buffer, so a jumbo-MTU interface keeps the dispatcher.
  */

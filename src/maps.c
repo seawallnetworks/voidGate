@@ -28,7 +28,7 @@
 #define BPF_TCX_INGRESS  46
 #endif
 
-/* voidGate's classic TC filter, on a kernel without tcx: a priority
+/* voidgate's classic TC filter, on a kernel without tcx: a priority
  * before most others (mini-fw's is 0xc000), so it runs first, as tcx's
  * BPF_F_BEFORE and the XDP dispatcher's order have it.
  */
@@ -228,7 +228,7 @@ vg_maps_close(struct vg_maps *m)
 }
 
 
-/* Where voidGate runs, as Seawall's proposal 0004 has it: in
+/* Where voidgate runs, as Seawall's proposal 0004 has it: in
  * libxdp's dispatcher, first of the programs there; at TC ingress, first,
  * when a program that is not a dispatcher holds the XDP hook, which is
  * never taken from it. hook = xdp or tc pins one of them.
@@ -418,7 +418,7 @@ have_tcx(void)
 }
 
 
-/* Takes voidGate's own XDP programs off the hook, left by a daemon that
+/* Takes voidgate's own XDP programs off the hook, left by a daemon that
  * died without detaching: alone (an older voidgate), or in a dispatcher.
  * Then returns VG_XDP_FREE; VG_XDP_SHARED, with the dispatcher's mode; or
  * VG_XDP_HELD, with the name of the program that holds the hook; or
