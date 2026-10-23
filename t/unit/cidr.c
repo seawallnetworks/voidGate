@@ -97,6 +97,26 @@ expect_config(const char *line, int want_rc)
 }
 
 
+/* Repeated allow_networks / local_networks lines add up; the first one
+ * replaces the built-in allow list.
+ */
+static void
+expect_counts(const char *text, int want_allow, int want_local)
+{
+    struct vg_config cfg;
+    int rc = load_config(text, &cfg);
+
+    if (rc != 0 || cfg.allow_cidr_count != want_allow
+        || cfg.local_cidr_count != want_local)
+    {
+        printf("FAIL config '%s': rc %d, allow %d (want %d), "
+               "local %d (want %d)\n", text, rc, cfg.allow_cidr_count,
+               want_allow, cfg.local_cidr_count, want_local);
+        g_fail++;
+    }
+}
+
+
 /* A CSV list far longer than any fixed line buffer must load whole: a line
  * split mid-token can turn 10.0.37.0/24 into 10.0.37.0/2, a /2 allow.
  */
@@ -195,6 +215,16 @@ main(void)
     expect_config("allow_networks = 10.0.0.0/", -1);
     expect_config("allow_networks = 10.0.0.0/abc", -1);
     expect_config("local_networks = 198.51.100.0/280", -1);
+
+    expect_counts("wake_pps = 2000", 5, 0);
+    expect_counts("allow_networks = 192.0.2.99/32", 1, 0);
+    expect_counts("allow_networks = 169.254.169.254/32, 127.0.0.0/8\n"
+                  "allow_networks = 192.0.2.99/32", 3, 0);
+    expect_counts("allow_networks = 192.0.2.99/32\n"
+                  "allow_networks =\n"
+                  "allow_networks = 2001:db8::/32", 2, 0);
+    expect_counts("local_networks = 198.51.100.10/32\n"
+                  "local_networks = 2001:db8::10/128", 5, 2);
 
     /* VG_MAX_CIDR_LIST entries: about 4 KB (v4) and 5 KB (v6) per line. */
     expect_long_list(AF_INET, VG_MAX_CIDR_LIST);

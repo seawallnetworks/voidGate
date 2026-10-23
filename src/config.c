@@ -156,7 +156,6 @@ parse_csv_cidrs(char *val, struct vg_cidr *arr, int *count,
     char *save = NULL;
     char *tok = strtok_r(val, ",", &save);
 
-    *count = 0;
     while (tok != NULL) {
         tok = trim(tok);
 
@@ -269,6 +268,7 @@ vg_config_load(const char *path, struct vg_config *c)
     char *line = NULL;
     size_t cap = 0;
     int lineno = 0;
+    int local_seen = 0, allow_seen = 0;
 
     vg_config_defaults(c);
 
@@ -338,6 +338,11 @@ vg_config_load(const char *path, struct vg_config *c)
             if (*val) {
                 c->auto_local = 0;
 
+                if (!local_seen) {
+                    c->local_cidr_count = 0;
+                    local_seen = 1;
+                }
+
                 if (parse_csv_cidrs(val, c->local_cidr, &c->local_cidr_count,
                                     VG_MAX_CIDR_LIST) < 0)
                 {
@@ -346,7 +351,15 @@ vg_config_load(const char *path, struct vg_config *c)
             }
 
         } else if (strcmp(key, "allow_networks") == 0) {
+            /* The first list replaces the built-in one; later lines add
+             * to it, so a second line cannot drop the first.
+             */
             if (*val) {
+                if (!allow_seen) {
+                    c->allow_cidr_count = 0;
+                    allow_seen = 1;
+                }
+
                 if (parse_csv_cidrs(val, c->allow_cidr, &c->allow_cidr_count,
                                     VG_MAX_CIDR_LIST) < 0)
                 {
